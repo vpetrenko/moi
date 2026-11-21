@@ -10,7 +10,7 @@ import { join, relative } from 'path'
 // to). The browser gets React from Moi's own vendored ESM (client/vendor/react),
 // so nothing outside the browser needs it. Two guards:
 //   1. a static scan: first-party server/lib code, excluding the browser-only
-//      applet collab module, never imports `react`,
+//      applet collab and live modules, never imports `react`,
 //      `react-dom`, or the `tldraw` package (whose entry point is the React
 //      editor) — `tldraw/package.json` is fine, it's data;
 //   2. a runtime check: loading the server's entry modules in a fresh Bun
@@ -76,6 +76,7 @@ describe('the server never loads React', () => {
       for await (const file of glob.scan({ cwd: join(ROOT, dir) })) {
         if (file.endsWith('.test.ts') || file.startsWith('test/')) continue
         if (dir === 'server' && file === 'applets/runtime/collab.ts') continue
+        if (dir === 'server' && file === 'applets/runtime/live.ts') continue
         const path = join(ROOT, dir, file)
         const hits = forbiddenImports(await Bun.file(path).text())
         for (const hit of hits) offenders.push(`${relative(ROOT, path)}: ${hit}`)

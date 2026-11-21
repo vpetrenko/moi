@@ -55,6 +55,7 @@ function workerLine(w: WorkerDebugInfo, now: number): string {
     `pid=${w.pid ?? '?'}`,
     callsBit,
     `pending=${w.pending}`,
+    `channels=${w.channels}`,
     `age=${fmtDuration(now - w.spawnedAt)}`,
     `lastCall=${w.lastCallAt === null ? 'never' : fmtAgo(w.lastCallAt, now)}`,
     `reap=${w.ttlRemainingMs > 0 ? 'in ' + fmtDuration(w.ttlRemainingMs) : 'imminent'}`

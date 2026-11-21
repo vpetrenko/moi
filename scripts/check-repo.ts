@@ -15,6 +15,7 @@ export async function checkFiles(root: string, files: string[]) {
     'LICENSE',
     'COLLAB.md',
     'INTENTS.md',
+    'LIVE.md',
     'SCRATCHPAD.md',
     'UI-COMPONENTS.md',
     '__fixtures__'

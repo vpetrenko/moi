@@ -1,6 +1,7 @@
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { createPortal } from 'react-dom'
+
+import { motion } from 'motion/react'
 
 import {
   closestCenter,
@@ -9,22 +10,17 @@ import {
   KeyboardCode,
   KeyboardSensor,
   PointerSensor,
+  useDraggable,
+  useDroppable,
   useSensor,
   useSensors
 } from '@dnd-kit/core'
-import type { DragEndEvent, DragStartEvent, DraggableAttributes } from '@dnd-kit/core'
-import {
-  arrayMove,
-  horizontalListSortingStrategy,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  useSortable,
-  verticalListSortingStrategy
-} from '@dnd-kit/sortable'
+import type { DragEndEvent, DragOverEvent, DraggableAttributes } from '@dnd-kit/core'
+
+import { cn } from '@/client/lib/cn'
 
 type ReorderableId = string
 
-// Enter is left out of `start` so it keeps activating the link or tab.
 const KEYBOARD_CODES = {
   start: [KeyboardCode.Space],
   cancel: [KeyboardCode.Esc],
@@ -33,38 +29,42 @@ const KEYBOARD_CODES = {
 
 export type ReorderableRenderState = {
   isDragging: boolean
+  isOver: boolean
+  dragDisabled: boolean
   dragHandleProps: Partial<DraggableAttributes> & Record<string, unknown>
 }
 
 type ReorderableListProps<T> = {
   items: T[]
   getId: (item: T) => ReorderableId
-  axis: 'x' | 'y'
   className?: string
+  itemClassName?: (item: T, state: ReorderableRenderState) => string | undefined
+  dragDisabled?: boolean
+  isItemDragDisabled?: (item: T) => boolean
   onReorder: (orderedIds: ReorderableId[]) => void
   renderItem: (item: T, state: ReorderableRenderState) => ReactNode
   renderPlaceholder?: (item: T) => ReactNode
   renderOverlay?: (item: T) => ReactNode
 }
 
-function sameOrder(a: ReorderableId[], b: ReorderableId[]) {
-  return a.length === b.length && a.every((id, index) => id === b[index])
+export function reorderIds(order: ReorderableId[], active: ReorderableId, over: ReorderableId) {
+  const from = order.indexOf(active)
+  const to = order.indexOf(over)
+  if (from < 0 || to < 0 || from === to) return order
+
+  const next = [...order]
+  const [moved] = next.splice(from, 1)
+  next.splice(to, 0, moved)
+  return next
 }
 
-/**
- * A sortable list on the stock `@dnd-kit/sortable` setup: items keep their DOM
- * order while dragging and are shifted with transforms, the dragged item leaves
- * its slot behind (`renderPlaceholder`) and follows the pointer in a
- * `DragOverlay` (`renderOverlay`).
- *
- * Every item is sortable. Render an item that must stay put next to the list,
- * not in it: a sortable item that is only disabled is still a drop target.
- */
 export function ReorderableList<T>({
   items,
   getId,
-  axis,
   className,
+  itemClassName,
+  dragDisabled = false,
+  isItemDragDisabled,
   onReorder,
   renderItem,
   renderPlaceholder,
@@ -72,86 +72,81 @@ export function ReorderableList<T>({
 }: ReorderableListProps<T>) {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(KeyboardSensor, {
-      keyboardCodes: KEYBOARD_CODES,
-      coordinateGetter: sortableKeyboardCoordinates
-    })
+    useSensor(KeyboardSensor, { keyboardCodes: KEYBOARD_CODES })
   )
-  const listRef = useRef<HTMLDivElement>(null)
-  const [draggingId, setDraggingId] = useState<ReorderableId>()
-  // Mounted on the first drag and kept, so the drop animation can finish. The
-  // server renderer used by tests cannot render portals.
-  const [overlayMounted, setOverlayMounted] = useState(false)
+  const [draggingId, setDraggingId] = useState<ReorderableId | null>(null)
+  const [dragOrder, setDragOrder] = useState<ReorderableId[] | null>(null)
+  const dragOrderRef = useRef<ReorderableId[] | null>(null)
 
-  // The dropped order is shown right away and held until the owner's `items`
-  // change, so a drop never flashes the old order while the owner saves it.
-  const ids = items.map(getId)
-  const [dropped, setDropped] = useState<{ from: ReorderableId[]; to: ReorderableId[] }>()
-  const displayedIds = dropped && sameOrder(dropped.from, ids) ? dropped.to : ids
-
-  const itemById = new Map(items.map(item => [getId(item), item]))
+  const ids = useMemo(() => items.map(getId), [items, getId])
+  const itemById = useMemo(() => new Map(items.map(item => [getId(item), item])), [items, getId])
+  const displayedIds = draggingId && dragOrder ? dragOrder : ids
   const displayedItems = displayedIds
     .map(id => itemById.get(id))
-    .filter((item): item is T => item !== undefined)
-  const draggingItem = draggingId === undefined ? undefined : itemById.get(draggingId)
-  const disabled = items.length < 2
+    .filter((item): item is T => Boolean(item))
+  const draggingItem = draggingId ? itemById.get(draggingId) : undefined
+  const reorderableCount = isItemDragDisabled
+    ? items.filter(item => !isItemDragDisabled(item)).length
+    : items.length
+  const disabled = dragDisabled || reorderableCount < 2
 
-  const handleDragStart = ({ active, activatorEvent }: DragStartEvent) => {
-    setDraggingId(String(active.id))
-    setOverlayMounted(true)
-    // Keep receiving the pointer while it is over an iframe (a view can embed
-    // one), which otherwise swallows the release and leaves the drag stuck.
-    // Captured on the list, not the item: a captured link would get a native
-    // click on release and navigate.
-    if (activatorEvent instanceof PointerEvent) {
-      listRef.current?.setPointerCapture(activatorEvent.pointerId)
-    }
+  const handleDragOver = (event: DragOverEvent) => {
+    const activeId = String(event.active.id)
+    const overId = event.over ? String(event.over.id) : undefined
+    const currentOrder = dragOrderRef.current
+    if (!overId || overId === activeId || !currentOrder) return
+
+    const nextOrder = reorderIds(currentOrder, activeId, overId)
+    if (nextOrder === currentOrder) return
+    dragOrderRef.current = nextOrder
+    setDragOrder(nextOrder)
   }
 
-  const handleDragEnd = ({ active, over }: DragEndEvent) => {
-    setDraggingId(undefined)
-    if (!over || over.id === active.id) return
-    const from = displayedIds.indexOf(String(active.id))
-    const to = displayedIds.indexOf(String(over.id))
-    if (from < 0 || to < 0) return
-    const next = arrayMove(displayedIds, from, to)
-    setDropped({ from: ids, to: next })
-    onReorder(next)
+  const handleDragEnd = (event: DragEndEvent) => {
+    const activeId = String(event.active.id)
+    const finalOrder = dragOrderRef.current
+    dragOrderRef.current = null
+    setDraggingId(null)
+    setDragOrder(null)
+    if (!finalOrder || finalOrder.join('|') === ids.join('|')) return
+    if (!finalOrder.includes(activeId)) return
+    onReorder(finalOrder)
   }
 
   return (
     <DndContext
       sensors={sensors}
       collisionDetection={closestCenter}
-      onDragStart={handleDragStart}
-      onDragCancel={() => setDraggingId(undefined)}
+      onDragStart={event => {
+        const order = items.map(getId)
+        setDraggingId(String(event.active.id))
+        dragOrderRef.current = order
+        setDragOrder(order)
+      }}
+      onDragOver={handleDragOver}
+      onDragCancel={() => {
+        dragOrderRef.current = null
+        setDraggingId(null)
+        setDragOrder(null)
+      }}
       onDragEnd={handleDragEnd}
     >
-      <SortableContext
-        items={displayedIds}
-        strategy={axis === 'x' ? horizontalListSortingStrategy : verticalListSortingStrategy}
-      >
-        <div ref={listRef} className={className}>
-          {displayedItems.map(item => (
-            <ReorderableListItem
-              key={getId(item)}
-              id={getId(item)}
-              item={item}
-              disabled={disabled}
-              renderItem={renderItem}
-              renderPlaceholder={renderPlaceholder}
-            />
-          ))}
-        </div>
-      </SortableContext>
-      {/* Portaled so the dragged copy is not clipped by the panels next to the list. */}
-      {overlayMounted &&
-        createPortal(
-          <DragOverlay>
-            {draggingItem && renderOverlay ? renderOverlay(draggingItem) : null}
-          </DragOverlay>,
-          document.body
-        )}
+      <div className={className}>
+        {displayedItems.map(item => (
+          <ReorderableListItem
+            key={getId(item)}
+            id={getId(item)}
+            item={item}
+            disabled={disabled || isItemDragDisabled?.(item) === true}
+            itemClassName={itemClassName}
+            renderItem={renderItem}
+            renderPlaceholder={renderPlaceholder}
+          />
+        ))}
+      </div>
+      <DragOverlay dropAnimation={null}>
+        {draggingItem && renderOverlay ? renderOverlay(draggingItem) : null}
+      </DragOverlay>
     </DndContext>
   )
 }
@@ -160,6 +155,7 @@ type ReorderableListItemProps<T> = {
   id: ReorderableId
   item: T
   disabled: boolean
+  itemClassName?: (item: T, state: ReorderableRenderState) => string | undefined
   renderItem: (item: T, state: ReorderableRenderState) => ReactNode
   renderPlaceholder?: (item: T) => ReactNode
 }
@@ -168,31 +164,41 @@ function ReorderableListItem<T>({
   id,
   item,
   disabled,
+  itemClassName,
   renderItem,
   renderPlaceholder
 }: ReorderableListItemProps<T>) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+  const { setNodeRef: setDroppableRef, isOver } = useDroppable({ id, disabled })
+  const {
+    attributes,
+    listeners,
+    setNodeRef: setDraggableRef,
+    isDragging
+  } = useDraggable({
     id,
     disabled,
     attributes: { roleDescription: 'sortable item' }
   })
+  const setNodeRef = (el: HTMLElement | null) => {
+    setDroppableRef(el)
+    setDraggableRef(el)
+  }
+  const state: ReorderableRenderState = {
+    isDragging,
+    isOver,
+    dragDisabled: disabled,
+    dragHandleProps: disabled ? {} : { ...attributes, ...listeners }
+  }
 
   return (
-    <div
+    <motion.div
+      layout
       ref={setNodeRef}
-      className="relative"
-      // The drag offset is computed per frame by dnd-kit, so it cannot be a
-      // utility class. Translate only: items of different sizes must not scale.
-      style={{
-        transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
-        transition
-      }}
+      className={cn('relative', itemClassName?.(item, state))}
+      transition={{ type: 'spring', duration: 0.25, bounce: 0 }}
     >
       {isDragging && renderPlaceholder?.(item)}
-      {renderItem(item, {
-        isDragging,
-        dragHandleProps: disabled ? {} : { ...attributes, ...listeners }
-      })}
-    </div>
+      {renderItem(item, state)}
+    </motion.div>
   )
 }

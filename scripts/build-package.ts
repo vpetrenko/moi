@@ -82,7 +82,7 @@ export async function buildPackage(): Promise<void> {
   // The runtimes are inputs to future applet builds. Preserve their shared
   // bridge in one chunk; React remains supplied by the browser import map.
   await Bun.build({
-    entrypoints: ['moi', 'rpc', 'collab'].map(name =>
+    entrypoints: ['moi', 'rpc', 'collab', 'live'].map(name =>
       join(root, 'server/applets/runtime', name + '.ts')
     ),
     outdir: join(outdir, 'applets'),

@@ -1,6 +1,6 @@
 import type { ServerEvent } from '@/lib/events'
 import { expect, test } from 'bun:test'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -43,6 +43,12 @@ test('real socket routes isolate shared workspaces, personal state, harness even
       })
     )
   }
+  // A live channel owned by workspace "one" only.
+  await Bun.write(
+    join(root, 'one/.moi/views/board.server.ts'),
+    `import { channel } from 'moi/server'
+     export const board = channel({ message: (_connection, text) => board.publish({ text, cwd: process.cwd() }) })`
+  )
   await Bun.write(
     join(root, 'workspaces.json'),
     JSON.stringify(
@@ -121,6 +127,33 @@ test('real socket routes isolate shared workspaces, personal state, harness even
     one!.socket.send(JSON.stringify({ type: 'ping' }))
     await until(() => one!.messages.some(message => message.type === 'pong'))
     expect(harness!.messages).toContainEqual({ type: 'sessions:status-snapshot', sessions: [] })
+
+    // An applet channel rides the workspace socket to that workspace's server code.
+    const peer = await connect(base + '/api/workspaces/one/events')
+    sockets.push(peer.socket)
+    const openBoard = JSON.stringify({
+      type: 'channel:open',
+      id: 'b',
+      module: 'views/board',
+      name: 'board'
+    })
+    for (const { socket } of [one!, peer, two!]) socket.send(openBoard)
+    await until(() => [one!, peer, two!].every(connection => connection.messages.length > 0))
+    expect(one!.messages.at(-1)).toEqual({ type: 'channel:opened', id: 'b' })
+    expect(two!.messages.at(-1)).toMatchObject({
+      type: 'channel:closed',
+      id: 'b'
+    })
+    one!.socket.send(JSON.stringify({ type: 'channel:message', id: 'b', data: 'hello' }))
+    await until(() => peer.messages.some(message => message.type === 'channel:message'))
+    expect(peer.messages.at(-1)).toEqual({
+      type: 'channel:message',
+      id: 'b',
+      data: { text: 'hello', cwd: await realpath(join(root, 'one')) }
+    })
+    expect(two!.messages.some(message => message.type === 'channel:message')).toBe(false)
+    peer.socket.close()
+
     for (const connection of connections) connection.messages.length = 0
     const send = (event: ServerEvent) => child.send({ type: 'publish', event })
     send({

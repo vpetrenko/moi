@@ -23,6 +23,7 @@ import {
 } from '@/lib/moi-attachments'
 import type {
   AppletBridge as SharedAppletBridge,
+  AppletChannel,
   AppletKind,
   AttachmentInput,
   AttachmentOrigin
@@ -33,10 +34,12 @@ import { useEffect } from 'react'
 
 import { createNanoEvents } from 'nanoevents'
 
+import { appletChannels } from '@/client/features/applets/applet-channels'
 import { reportAppletError } from '@/client/features/applets/applet-log'
 import { toast } from '@/client/components/ui/toast'
 import { createRateLimiter, type RateLimiter } from '@/client/lib/rate-limit'
 import { useLatestRef } from '@/client/lib/use-latest-ref'
+import { channelRefOf } from '@/lib/channels'
 import { isParamsRecord } from '@/lib/workspace-tabs'
 import { resolveUrl } from '@/lib/navigation'
 
@@ -128,6 +131,8 @@ function createRuntime(workspaceId: string) {
     connect(identity: AppletIdentity, base = '') {
       let alive = true
       const source = appletSource(identity)
+      // Live channels this module instance holds; closed with it.
+      const channels = new Set<AppletChannel>()
       const bridge: HostAppletBridge = {
         get collab() {
           return alive ? appletCollabApi : undefined
@@ -142,6 +147,27 @@ function createRuntime(workspaceId: string) {
             toast.add({ title: 'Couldn’t add attachment', description: message, type: 'error' })
             drop(identity, `addChatAttachment() was dropped: ${message}`)
           }
+        },
+        openChannel(channel, listener) {
+          if (!alive) return undefined
+          const ref = channelRefOf(channel)
+          if (!ref) {
+            drop(
+              identity,
+              'A live channel was not opened: pass the channel imported from a .server.ts file'
+            )
+            return undefined
+          }
+          const opened = appletChannels(workspaceId).open(ref, listener)
+          const handle: AppletChannel = {
+            ...opened,
+            close() {
+              channels.delete(handle)
+              opened.close()
+            }
+          }
+          channels.add(handle)
+          return handle
         },
         navigate(url) {
           if (!alive) return
@@ -202,6 +228,7 @@ function createRuntime(workspaceId: string) {
         bridge,
         dispose: () => {
           alive = false
+          for (const channel of [...channels]) channel.close()
         }
       }
     }

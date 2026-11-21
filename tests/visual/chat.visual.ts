@@ -22,9 +22,6 @@ describe('Chat', () => {
     'new chat',
     async page => {
       await page.goto(WORKSPACE_PAGE)
-      await expect(
-        page.getByText('Chat with your agent, create widgets and views', { exact: false })
-      ).toBeVisible()
       await expect(page.getByPlaceholder('Do anything')).toBeVisible()
     },
     {
@@ -125,19 +122,21 @@ test(
   'chat placement and the open popup survive reload',
   async page => {
     await page.goto(WORKSPACE_PAGE)
-    await page.getByRole('button', { name: 'Minimize chat', exact: true }).click()
+    await page.getByRole('button', { name: 'Undock chat', exact: true }).click()
+    await page.getByRole('button', { name: 'Agent', exact: true }).click()
+    const resize = page.getByRole('separator', { name: 'Resize chat popup' })
+    await expect(resize).toHaveAttribute('aria-valuenow', '440')
     await page.goto('/')
     await page.goto(`/?reopen=popup#/workspace/${WORKSPACE}`)
     await expect(page.getByRole('button', { name: 'Dock chat', exact: true })).toBeVisible()
     await takeSnapshot('saved popup')
     await page.getByRole('button', { name: 'Dock chat', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Dock chat', exact: true })).not.toBeVisible()
     await page.goto('/')
     await page.goto(`/?reopen=1#/workspace/${WORKSPACE}`)
-    await expect(page.getByRole('button', { name: 'Minimize chat', exact: true })).toBeVisible()
-    await takeSnapshot('saved docked chat')
-    await page.getByRole('button', { name: 'Collapse chat', exact: true }).click()
-    await expect(page.getByRole('button', { name: 'Agent', exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Dock chat', exact: true })).not.toBeVisible()
+    await expect(page.getByRole('button', { name: 'Undock chat', exact: true })).toBeVisible()
+    await takeSnapshot('saved docked chat')
   },
   { viewports: { '': { width: 1280, height: 900 } } }
 )

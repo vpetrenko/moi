@@ -52,10 +52,10 @@ const workspaceTabVariants = cva(
         true: 'invisible'
       },
       preview: {
-        // Matches the dragged workspace in the sidebar: opaque and lifted.
-        true: 'pointer-events-none bg-background shadow-lg'
+        true: 'cursor-grabbing ring-1 ring-border'
       }
-    }
+    },
+    compoundVariants: [{ preview: true }]
   }
 )
 
@@ -104,8 +104,7 @@ type WorkspaceTabProps = WorkspaceTabBaseProps &
       }
     | {
         preview?: false
-        // Absent for a tab that takes no part in reordering (Overview).
-        state?: ReorderableRenderState
+        state: ReorderableRenderState
         onSelect: (tab: WorkspaceTabId) => void
         onClose: (tab: WorkspaceTabId) => void
       }
@@ -120,14 +119,15 @@ function WorkspaceTab(props: WorkspaceTabProps) {
       type="button"
       aria-hidden={preview || undefined}
       aria-label={tab.needsAttention && !tab.loading ? `${tab.label}: needs attention` : tab.label}
+      disabled={preview}
       tabIndex={preview ? -1 : undefined}
       onClick={props.preview ? undefined : () => props.onSelect(tab.key)}
       className={workspaceTabVariants({
         active,
-        dragging: props.state?.isDragging,
+        dragging: props.preview ? false : props.state.isDragging,
         preview
       })}
-      {...props.state?.dragHandleProps}
+      {...(props.preview ? {} : props.state.dragHandleProps)}
     >
       <div
         className={cn(
@@ -201,45 +201,29 @@ export function WorkspaceTabs({
   onClose,
   onReorder
 }: WorkspaceTabsProps) {
-  const fixedTabs = tabs.filter(tab => tab.reorderable === false)
-  const reorderableTabs = tabs.filter(tab => tab.reorderable !== false)
-
   return (
     <div className="flex min-w-0 flex-1 items-center gap-1">
       <div className="no-scrollbar min-w-0 scroll-fade-x overflow-x-auto overflow-y-hidden [--scroll-fade-reveal:16px]">
-        <div className="flex w-max items-center gap-1">
-          {fixedTabs.map(tab => (
+        <ReorderableList
+          items={tabs}
+          getId={tab => tab.key}
+          isItemDragDisabled={tab => tab.reorderable === false}
+          className="flex w-max items-center gap-1"
+          onReorder={ordered => onReorder(ordered as WorkspaceTabId[])}
+          renderPlaceholder={() => (
+            <div className="pointer-events-none absolute inset-0 rounded-md bg-muted" />
+          )}
+          renderOverlay={tab => <WorkspaceTab tab={tab} active={active === tab.key} preview />}
+          renderItem={(tab, state) => (
             <WorkspaceTab
-              key={tab.key}
               tab={tab}
               active={active === tab.key}
+              state={state}
               onSelect={onSelect}
               onClose={onClose}
             />
-          ))}
-          <ReorderableList
-            items={reorderableTabs}
-            getId={tab => tab.key}
-            axis="x"
-            className="flex items-center gap-1"
-            onReorder={ordered =>
-              onReorder([...fixedTabs.map(tab => tab.key), ...(ordered as WorkspaceTabId[])])
-            }
-            renderPlaceholder={() => (
-              <div className="pointer-events-none absolute inset-0 rounded-md bg-accent" />
-            )}
-            renderOverlay={tab => <WorkspaceTab tab={tab} active={false} preview />}
-            renderItem={(tab, state) => (
-              <WorkspaceTab
-                tab={tab}
-                active={active === tab.key}
-                state={state}
-                onSelect={onSelect}
-                onClose={onClose}
-              />
-            )}
-          />
-        </div>
+          )}
+        />
       </div>
       <div className="shrink-0">
         {createItems.length > 0 && <CreateTabMenu items={createItems} />}

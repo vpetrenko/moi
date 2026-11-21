@@ -35,11 +35,30 @@ type Pending = {
   timer: ReturnType<typeof setTimeout>
 }
 
+// The browser end of one open channel connection, as the worker pool sees it.
+export type ChannelClient = {
+  opened(): void
+  message(data: unknown): void
+  // The connection is gone. `error` tells a failure in workspace server code
+  // from an ordinary worker restart.
+  closed(reason: { message: string; error: boolean }): void
+  // A handler threw; the connection stays open.
+  error(message: string): void
+}
+
+export type ChannelHandle = {
+  send(data: unknown): void
+  close(): void
+}
+
 type Slot = {
   workspacePath: string
   worker: ReturnType<typeof Bun.spawn>
   readyPromise: Promise<void>
   pending: Map<string, Pending>
+  // Open channel connections, by connection id.
+  channels: Map<string, ChannelClient>
+  keepAlive?: ReturnType<typeof setInterval>
   killed: boolean
   // Introspection only (surfaced by /status) — not load-bearing.
   ready: boolean
@@ -61,10 +80,29 @@ function rejectAndClearPending(slot: Slot, reason: string) {
   slot.pending.clear()
 }
 
+// A dead worker takes its channels with it. Browsers open them again, which
+// spawns a fresh worker — this is also how edited server code goes live.
+function closeChannels(slot: Slot, reason: string) {
+  clearInterval(slot.keepAlive)
+  slot.keepAlive = undefined
+  const clients = [...slot.channels.values()]
+  slot.channels.clear()
+  for (const client of clients) client.closed({ message: reason, error: false })
+}
+
+function forgetChannel(slot: Slot, connectionId: string) {
+  slot.channels.delete(connectionId)
+  if (slot.channels.size === 0) {
+    clearInterval(slot.keepAlive)
+    slot.keepAlive = undefined
+  }
+}
+
 function killSlot(slot: Slot, reason: string) {
   if (slot.killed) return
   slot.killed = true
   rejectAndClearPending(slot, reason)
+  closeChannels(slot, reason)
   try {
     slot.worker.kill()
   } catch {}
@@ -86,6 +124,7 @@ function gracefulKillSlot(slot: Slot, reason: string) {
   if (slot.killed) return
   slot.killed = true
   rejectAndClearPending(slot, reason)
+  closeChannels(slot, reason)
 
   const timer = setTimeout(() => {
     try {
@@ -124,6 +163,7 @@ function spawnSlot(workspacePath: string, workspaceEnv: Record<string, string>):
     worker: undefined as never,
     readyPromise,
     pending: new Map(),
+    channels: new Map(),
     killed: false,
     ready: false,
     spawnedAt: Date.now(),
@@ -158,6 +198,7 @@ function spawnSlot(workspacePath: string, workspaceEnv: Record<string, string>):
       // re-disposing (the worker is already gone).
       slot.killed = true
       rejectAndClearPending(slot, 'Functions worker exited')
+      closeChannels(slot, 'Functions worker exited')
       if (slots.peek(workspacePath) === slot) slots.delete(workspacePath)
     },
     ipc(message) {
@@ -167,6 +208,13 @@ function spawnSlot(workspacePath: string, workspaceEnv: Record<string, string>):
         data?: string
         message?: string
         module?: string
+        connectionId?: string
+        connectionIds?: string[]
+      }
+
+      if (msg.type.startsWith('channel:')) {
+        receiveChannelMessage(slot, msg)
+        return
       }
 
       if (msg.type === 'ready') {
@@ -197,6 +245,30 @@ function spawnSlot(workspacePath: string, workspaceEnv: Record<string, string>):
   })
 
   return slot
+}
+
+function receiveChannelMessage(
+  slot: Slot,
+  msg: {
+    type: string
+    connectionId?: string
+    connectionIds?: string[]
+    data?: unknown
+    message?: string
+  }
+) {
+  if (msg.type === 'channel:send') {
+    for (const id of msg.connectionIds ?? []) slot.channels.get(id)?.message(msg.data)
+    return
+  }
+  const client = msg.connectionId ? slot.channels.get(msg.connectionId) : undefined
+  if (!client || !msg.connectionId) return
+  if (msg.type === 'channel:opened') client.opened()
+  else if (msg.type === 'channel:error') client.error(msg.message ?? 'Unknown error')
+  else if (msg.type === 'channel:closed') {
+    forgetChannel(slot, msg.connectionId)
+    client.closed({ message: msg.message ?? 'Unknown error', error: true })
+  }
 }
 
 function getOrSpawn(workspacePath: string, workspaceEnv: Record<string, string>): Slot {
@@ -266,6 +338,49 @@ export async function callFunction(
   return callInSlot(slot, module, name, args)
 }
 
+// How often a worker with open channels is marked as used, so the idle TTL
+// never reaps it under a connected window.
+const CHANNEL_KEEP_ALIVE_MS = 60_000
+
+// Open one connection to a channel exported by a workspace `.server.ts`. The
+// worker answers through `client`: `opened`, then messages, and `closed` when
+// the connection ends on the server side (failure or worker restart).
+export async function openChannel(
+  module: string,
+  name: string,
+  workspacePath: string,
+  client: ChannelClient
+): Promise<ChannelHandle> {
+  const workspaceEnv = await resolveWorkspaceEnv(workspacePath)
+  const slot = getOrSpawn(workspacePath, workspaceEnv)
+  await slot.readyPromise
+  if (slot.killed) throw new Error('Functions worker exited')
+
+  const connectionId = crypto.randomUUID()
+  slot.channels.set(connectionId, client)
+  slot.keepAlive ??= setInterval(() => {
+    if (slots.peek(workspacePath) === slot) slots.get(workspacePath)
+  }, CHANNEL_KEEP_ALIVE_MS)
+  slot.keepAlive.unref?.()
+
+  const post = (message: object) => {
+    if (slot.killed || !slot.channels.has(connectionId)) return
+    try {
+      slot.worker.send(message)
+    } catch {
+      // The worker is gone; its exit closes the channel.
+    }
+  }
+  post({ type: 'channel:open', connectionId, module, name })
+  return {
+    send: data => post({ type: 'channel:message', connectionId, data }),
+    close: () => {
+      post({ type: 'channel:close', connectionId })
+      forgetChannel(slot, connectionId)
+    }
+  }
+}
+
 // One-shot, isolated invocation — `moi call-server-fn`'s path. Spawns a fresh
 // worker just for this call and kills it afterwards, so a debug invocation
 // never touches the warm pool the widgets use: no shared module-level state in
@@ -325,6 +440,8 @@ export type WorkerDebugInfo = {
   errors: number
   timeouts: number
   pending: number
+  // Open channel connections
+  channels: number
   // ms until the LRU idle TTL reaps this worker (refreshed on every call)
   ttlRemainingMs: number
   // Resident memory of the worker process; null when /proc isn't available (macOS)
@@ -360,6 +477,7 @@ export function getWorkersDebugSnapshot(): WorkerDebugInfo[] {
       errors: slot.errors,
       timeouts: slot.timeouts,
       pending: slot.pending.size,
+      channels: slot.channels.size,
       ttlRemainingMs: slots.getRemainingTTL(workspacePath),
       rssBytes: readRss(slot.worker.pid),
       modules: [...slot.modules].sort()

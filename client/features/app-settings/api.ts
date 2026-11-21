@@ -3,7 +3,7 @@ import { jsonRequest, requestJson } from '@/client/api/http'
 import { useClientEvent } from '@/client/runtime/use-client-events'
 import type { AppSettings } from '@/lib/types'
 
-import { appSettingsQuery } from './query'
+export const appSettingsKey = ['app-settings'] as const
 
 export function useAppSettings() {
   const queryClient = useQueryClient()
@@ -11,10 +11,14 @@ export function useAppSettings() {
   // over the live-events socket so every open client stays in sync.
   useClientEvent(event => {
     if (event.type === 'app-settings:changed') {
-      queryClient.setQueryData<AppSettings>(appSettingsQuery.queryKey, event.settings)
+      queryClient.setQueryData<AppSettings>(appSettingsKey, event.settings)
     }
   })
-  return useQuery(appSettingsQuery)
+  return useQuery<AppSettings>({
+    queryKey: appSettingsKey,
+    queryFn: () => requestJson('/api/settings'),
+    staleTime: 30_000
+  })
 }
 
 export function useSaveAppSettings() {
@@ -23,7 +27,7 @@ export function useSaveAppSettings() {
     mutationFn: patch =>
       requestJson('/api/settings', jsonRequest('PATCH', patch), 'Failed to save settings'),
     onSuccess: next => {
-      queryClient.setQueryData<AppSettings>(appSettingsQuery.queryKey, next)
+      queryClient.setQueryData<AppSettings>(appSettingsKey, next)
     }
   })
 }

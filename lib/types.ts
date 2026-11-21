@@ -14,9 +14,29 @@ export type AppletKind = 'view' | 'widget'
 // Inputs stay unknown at this trust boundary; the browser host narrows them.
 export type AppletBridge = {
   addChatAttachment: (input: unknown) => void
+  // Open a live channel exported by a workspace `.server.ts`. Undefined when
+  // the reference is not a channel or the applet was unloaded.
+  openChannel: (channel: unknown, listener: AppletChannelListener) => AppletChannel | undefined
   navigate: (url: unknown) => void
   resolveUrl: (url: unknown) => string
   sendChatMessage: (input: unknown, context?: unknown) => void
+}
+
+// The applet's end of one live channel. The host keeps it open: after a drop it
+// calls `close`, connects again and calls `open`.
+export type AppletChannelListener = {
+  open?: () => void
+  message?: (data: unknown) => void
+  // `message` tells why the server refused or dropped the channel.
+  close?: (message?: string) => void
+}
+
+export type AppletChannel = {
+  // False when the channel is not open; the message is dropped.
+  send: (data: unknown) => boolean
+  close: () => void
+  // Replace the connection now instead of waiting for the next retry.
+  reconnect: () => void
 }
 
 export type AppletInfo = {

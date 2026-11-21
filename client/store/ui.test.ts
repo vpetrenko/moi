@@ -14,13 +14,14 @@ const useUiStore = createUiStore(localStorage)
 beforeEach(() => {
   storedValues.clear()
   useUiStore.setState({
+    hasSentMessageFromMoi: false,
     workspaceIdsPendingAnalysis: [],
     workspaces: {},
     composerDrafts: {}
   })
 })
 
-describe('workspace analysis', () => {
+describe('first-message onboarding markers', () => {
   test('persists the pending-analysis workspace until a message is sent', () => {
     useUiStore.getState().markWorkspacePendingAnalysis('ws-1')
     useUiStore.getState().markWorkspacePendingAnalysis('ws-1')
@@ -30,11 +31,12 @@ describe('workspace analysis', () => {
       state: { workspaceIdsPendingAnalysis: ['ws-1'] }
     })
 
-    useUiStore.getState().clearWorkspacePendingAnalysis('ws-1')
+    useUiStore.getState().markMessageSentFromMoi('ws-1')
 
+    expect(useUiStore.getState().hasSentMessageFromMoi).toBe(true)
     expect(useUiStore.getState().workspaceIdsPendingAnalysis).toEqual([])
     expect(JSON.parse(storedValues.get('moi:ui') ?? '{}')).toMatchObject({
-      state: { workspaceIdsPendingAnalysis: [] }
+      state: { hasSentMessageFromMoi: true, workspaceIdsPendingAnalysis: [] }
     })
   })
 })
@@ -46,6 +48,7 @@ describe('composer drafts', () => {
       JSON.stringify({
         state: {
           discoveredWorkspacesOpen: false,
+          hasSentMessageFromMoi: true,
           workspaceIdsPendingAnalysis: []
         },
         version: 0

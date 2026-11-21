@@ -34,6 +34,7 @@ const EXTERNAL_MODULES = [
 const RPC_MODULE_PATH = appletRuntime('rpc')
 const MOI_MODULE_PATH = appletRuntime('moi')
 const COLLAB_MODULE_PATH = appletRuntime('collab')
+const LIVE_MODULE_PATH = appletRuntime('live')
 
 type ServerModule = {
   name: string
@@ -64,7 +65,9 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-async function validateServerExports(filePath: string): Promise<string[]> {
+type ServerExport = { name: string; kind: 'function' | 'channel' }
+
+async function validateServerExports(filePath: string): Promise<ServerExport[]> {
   const source = await Bun.file(filePath).text()
   const transpiler = new Bun.Transpiler({ loader: 'ts' })
   const { exports } = transpiler.scan(source)
@@ -75,8 +78,14 @@ async function validateServerExports(filePath: string): Promise<string[]> {
     return !typePattern.test(source)
   })
 
-  for (const name of runtimeExports) {
+  return runtimeExports.map(name => {
     const escaped = escapeRegex(name)
+    // A live channel: `export const todo = channel(...)` or `syncedState<S, A>(...)`
+    // from 'moi/server'. The browser gets a reference to it, not a function.
+    const channelPattern = new RegExp(
+      `export\\s+const\\s+${escaped}\\s*(?::[^=]+)?=\\s*(?:channel|syncedState)\\s*[<(]`
+    )
+    if (channelPattern.test(source)) return { name, kind: 'channel' }
     const asyncFnPattern = new RegExp(
       `export\\s+async\\s+function\\*?\\s+${escaped}\\b` +
         '|' +
@@ -85,12 +94,12 @@ async function validateServerExports(filePath: string): Promise<string[]> {
     if (!asyncFnPattern.test(source)) {
       throw new Error(
         `"${name}" in ${basename(filePath)} is not an async function. ` +
-          `.server.ts files can only export async functions.`
+          `.server.ts files can only export async functions and channels ` +
+          `(channel() or syncedState() from 'moi/server').`
       )
     }
-  }
-
-  return runtimeExports
+    return { name, kind: 'function' }
+  })
 }
 
 // Server modules are keyed by their path relative to the Moi root
@@ -151,6 +160,17 @@ function appletRuntimePlugin(
       build.onResolve({ filter: /^moi\/collab$/ }, () => ({
         path: COLLAB_MODULE_PATH
       }))
+      // Live channels reach the host through the same bridge.
+      build.onResolve({ filter: /^moi\/live$/ }, () => ({
+        path: LIVE_MODULE_PATH
+      }))
+      // Server-only: a channel is created in a `.server.ts`, never in the browser.
+      build.onResolve({ filter: /^moi\/server$/ }, args => {
+        throw new Error(
+          `'moi/server' is imported by ${basename(args.importer)}, which runs in the browser. ` +
+            `Create the channel in a .server.ts file and import it from there.`
+        )
+      })
       // The applet-facing runtime. A bare specifier, so match it exactly.
       build.onResolve({ filter: /^moi$/ }, () => ({ path: MOI_MODULE_PATH }))
 
@@ -189,13 +209,20 @@ function appletRuntimePlugin(
         const exports = await validateServerExports(args.path)
         const moduleName = serverModuleKey(args.path, moiRoot)
 
-        serverModules.push({ name: moduleName, exports })
+        serverModules.push({
+          name: moduleName,
+          exports: exports.map(e => e.name)
+        })
 
+        // A channel export becomes a plain reference the `moi/live` hooks
+        // understand (see ChannelRefMarker in lib/channels.ts).
+        const module = JSON.stringify(moduleName)
         const lines = [
           `import { rpc } from "mei:rpc";`,
-          ...exports.map(
-            name =>
-              `export const ${name} = rpc(${JSON.stringify(moduleName)}, ${JSON.stringify(name)});`
+          ...exports.map(({ name, kind }) =>
+            kind === 'channel'
+              ? `export const ${name} = { __moiChannel: { module: ${module}, name: ${JSON.stringify(name)} } };`
+              : `export const ${name} = rpc(${module}, ${JSON.stringify(name)});`
           )
         ]
 

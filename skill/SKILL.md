@@ -435,7 +435,8 @@ Inspect source only for local customizations, doc conflicts, or concrete build i
 
 ### Server functions
 
-In `<name>.server.ts`, export named `async function`s (only — no `const`, sync, or class) and call
+In `<name>.server.ts`, export named `async function`s (only — no `const`, sync, or class; the one
+exception is a [live channel](#live-channels)) and call
 them from the component like ordinary async functions; arguments and return values are auto-serialized (`Date`, `Map`,
 `Set`, … work). They run on the Bun server with `process.env` and full filesystem access, at
 `cwd = <workspace root>` (the parent of `.moi/`, where you operate) — so workspace files are plain
@@ -453,6 +454,14 @@ The component fetches on mount; after you change underlying data a server fn rea
 
 It's plain Bun — every Bun API is available with no setup: `bun:sqlite`, `Bun.redis`, `Bun.s3`,
 `Bun.file`, `fetch`, …
+
+### Live channels
+
+When open windows must see each other's changes at once (a shared list, a board, live events),
+export a channel from the `.server.ts` with `channel()` or `syncedState()` from `moi/server` and
+use it in the applet with `useChannel` or `useSyncedState` from `moi/live`. Moi owns the
+connection and reconnects it; never start your own WebSocket server or port. Read
+[Live channels](references/LIVE.md) before building one.
 
 ### Files and assets
 
@@ -583,4 +592,4 @@ This skill is installed with Moi (via the CLI or the UI) and can fall behind whe
 - **Then** — if you updated, mention it.
 
 <!-- moi skill version marker — read by `moi skill` to detect drift; do not edit by hand -->
-<moi-skill version="0.21.0" />
+<moi-skill version="0.22.0" />

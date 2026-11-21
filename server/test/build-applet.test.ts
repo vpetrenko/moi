@@ -228,6 +228,22 @@ describe('buildApplet', () => {
     await expect(buildApplet(join(FIXTURES, 'bad-const.tsx'))).rejects.toThrow('"API_VERSION"')
   })
 
+  test('turns a channel export into a reference and keeps functions as rpc stubs', async () => {
+    const result = await buildApplet(join(FIXTURES, 'with-live.tsx'))
+
+    expect(result.js).toContain('__moiChannel: { module: "live", name: "counter" }')
+    expect(result.js).toContain('rpc("live", "saveCount")')
+    // Server code and its storage stay out of the browser bundle.
+    expect(result.js).not.toContain('The count cannot go below zero')
+    expect(result.serverModules[0].exports).toContain('counter')
+  })
+
+  test('rejects moi/server imported by browser code', async () => {
+    await expect(buildApplet(join(FIXTURES, 'live-in-browser.tsx'))).rejects.toThrow(
+      'Create the channel in a .server.ts file'
+    )
+  })
+
   test('produces inline source maps', async () => {
     const result = await buildApplet(join(FIXTURES, 'hello.tsx'))
 

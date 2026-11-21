@@ -13,7 +13,7 @@ WebSocket handlers, and CLI commands call the same feature modules.
 | `workspaces/`      | Workspace discovery and registration, creation/import, `.moi/` scaffolding, shared layout, theme, icons, file previews, and environment settings.                                                             |
 | `sessions/`        | Moi's session metadata, selection and pin state, archiving, ID renames, message attachments, and pending-view chat handoffs. Provider-owned history stays in the harnesses.                                   |
 | `workspace-state/` | Per-workspace `state.json` storage: one writer per workspace, transactions, atomic writes, lock timeout, a revision and a `personal-state:changed` event per change, re-adoption of a removed workspace's id. |
-| `applets/`         | View/widget manifests, source analysis, builds, CSS scoping, typechecking, bundle serving, server-function workers, thumbnails, UI component installation, and the error journal.                             |
+| `applets/`         | View/widget manifests, source analysis, builds, CSS scoping, typechecking, bundle serving, server-function workers, live channels, thumbnails, UI component installation, and the error journal.              |
 | `scratchpad/`      | Canvas documents, assets, headless drawing, and browser screenshot requests.                                                                                                                                  |
 | `skills/`          | Bundled workspace skill installation, version checks, and updates. These modules manage the copies shipped under `workspace/`.                                                                                |
 | `harness/`         | Provider adapters, transports, sessions, discovery, authentication, and readiness. See [the harness guide](harness/README.md).                                                                                |
@@ -65,7 +65,13 @@ corresponding directory above.
 | `/cloud/api/events`          | Cloud account and membership changes (owned by Batiok)                                                   |
 | `/api/events`                | This machine's workspace list, app settings, personal state, environment, navigation and canvas commands |
 | `/api/harness/events`        | This machine's chats, run activity and harness readiness across workspaces                               |
-| `/api/workspaces/:id/events` | Shared workspace updates and presence, served by the owner                                               |
+| `/api/workspaces/:id/events` | Shared workspace updates, presence and applet live channels, served by the owner                         |
+
+Applet live channels (`moi/server`, `moi/live`) also use the workspace socket. Frames whose
+type starts with `channel:` go through `applets/channels.ts` to the workspace's functions
+worker, where `applets/channel-runtime.ts` runs the channel exported by a `.server.ts`. A
+worker restart closes its channels and browsers open them again. Wire types live in
+[lib/channels.ts](../lib/channels.ts).
 
 Remote shared connections use `ownerId:workspaceId`, just like owner HTTP requests.
 The URL supplies workspace scope; shared event payloads omit `workspaceId`. The

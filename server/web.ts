@@ -20,6 +20,7 @@ import { collabManager } from './collab/manager'
 import { EVENTS_TOPIC, HARNESS_EVENTS_TOPIC, workspaceEventsTopic, setEventServer } from './events'
 import { killBuildWorkers } from './applets/build-worker'
 import { killAllWorkers } from './applets/functions'
+import { closeChannelSocket, handleChannelFrame, isChannelFrame } from './applets/channels'
 import { startScratchpadSweeper } from './scratchpad/document'
 import { navigationRelay } from './navigation-relay'
 import { resolveScratchOp } from './scratchpad/relay'
@@ -225,6 +226,12 @@ export const app = Bun.serve<WsData>({
     },
     async message(ws, message) {
       if (ws.data.channel === 'workspace') {
+        // Applet live channels share this socket; they go to the workspace's
+        // server code, never to presence.
+        if (isChannelFrame(message)) {
+          if (ws.data.workspacePath) handleChannelFrame(ws, ws.data.workspacePath, message)
+          return
+        }
         // Presence starts with the first presence message; until then the socket only pings.
         if (!ws.data.presence && String(message) === '{"type":"ping"}') {
           ws.send('{"type":"pong"}')
@@ -293,6 +300,7 @@ export const app = Bun.serve<WsData>({
     },
     close(ws) {
       if (ws.data.channel === 'workspace') {
+        closeChannelSocket(ws)
         collabManager.close(ws)
         ws.unsubscribe(workspaceEventsTopic(ws.data.workspaceId))
       } else if (ws.data.channel === 'chat') {

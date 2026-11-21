@@ -3,6 +3,27 @@
 import { parse, stringify } from 'devalue'
 import { join, resolve, sep } from 'path'
 
+import {
+  channel,
+  closeConnection,
+  openConnection,
+  receiveMessage,
+  setChannelTransport,
+  syncedState
+} from './channel-runtime'
+
+// `import { channel, syncedState } from 'moi/server'` in workspace server code
+// resolves to this process's channel runtime, whatever the workspace installs.
+Bun.plugin({
+  name: 'moi-server',
+  setup(build) {
+    build.module('moi/server', () => ({
+      exports: { channel, syncedState },
+      loader: 'object'
+    }))
+  }
+})
+
 const MEI_DIR =
   process.env.MEI_FUNCTIONS_DIR ?? join(import.meta.dir, '..', '..', 'test-workspace', '.moi')
 
@@ -68,9 +89,30 @@ async function evictModule(name: string) {
 type CallMessage = { id: string; type: 'call'; module: string; name: string; args: string }
 type ReloadMessage = { type: 'reload'; modules: string[] }
 type ShutdownMessage = { type: 'shutdown' }
-type IncomingMessage = CallMessage | ReloadMessage | ShutdownMessage
+type ChannelMessage =
+  | { type: 'channel:open'; connectionId: string; module: string; name: string }
+  | { type: 'channel:message'; connectionId: string; data: unknown }
+  | { type: 'channel:close'; connectionId: string }
+type IncomingMessage = CallMessage | ReloadMessage | ShutdownMessage | ChannelMessage
+
+setChannelTransport({
+  opened: connectionId => send({ type: 'channel:opened', connectionId }),
+  send: (connectionIds, data) => send({ type: 'channel:send', connectionIds, data }),
+  closed: (connectionId, message) => send({ type: 'channel:closed', connectionId, message }),
+  error: (connectionId, message) => send({ type: 'channel:error', connectionId, message })
+})
 
 process.on('message', async (raw: IncomingMessage) => {
+  // Channel events are handed over at once; the runtime keeps each
+  // connection's open, messages and close in order.
+  if (raw.type === 'channel:open') {
+    const { module: moduleName, name } = raw
+    openConnection(raw.connectionId, async () => (await loadModule(moduleName))[name])
+    return
+  }
+  if (raw.type === 'channel:message') return receiveMessage(raw.connectionId, raw.data)
+  if (raw.type === 'channel:close') return closeConnection(raw.connectionId)
+
   if (raw.type === 'reload') {
     for (const name of raw.modules) {
       await evictModule(name)

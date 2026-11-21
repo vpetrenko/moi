@@ -209,9 +209,10 @@ type ViewsWidgetProps = {
   views: ViewInfo[]
   onOpenView: (viewId: string) => void
   onCreateView?: () => void
+  showOnboarding: boolean
 }
 
-export function ViewsWidget({ views, onOpenView, onCreateView }: ViewsWidgetProps) {
+export function ViewsWidget({ views, onOpenView, onCreateView, showOnboarding }: ViewsWidgetProps) {
   const visibleViews = views.filter(view => view.status !== 'draft')
   const empty = visibleViews.length === 0
 
@@ -235,6 +236,11 @@ export function ViewsWidget({ views, onOpenView, onCreateView }: ViewsWidgetProp
         ))}
         {onCreateView && <NewViewButton outlined={empty} onClick={onCreateView} />}
       </div>
+      {empty && showOnboarding && (
+        <p className="relative mr-8 ml-auto max-w-56 text-right text-sm text-muted-foreground">
+          Create new views when you need separate pages for focused tasks
+        </p>
+      )}
     </div>
   )
 }

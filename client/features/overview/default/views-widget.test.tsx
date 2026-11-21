@@ -11,7 +11,7 @@ import { ViewsWidget } from './views-widget'
 
 const noop = () => {}
 
-function render(views: ViewInfo[], canCreate = true): string {
+function render(views: ViewInfo[], showOnboarding = true, canCreate = true): string {
   const queryClient = new QueryClient()
   return renderToStaticMarkup(
     createElement(
@@ -35,7 +35,8 @@ function render(views: ViewInfo[], canCreate = true): string {
         createElement(ViewsWidget, {
           views,
           onOpenView: noop,
-          onCreateView: canCreate ? noop : undefined
+          onCreateView: canCreate ? noop : undefined,
+          showOnboarding
         })
       )
     )
@@ -55,6 +56,7 @@ describe('ViewsWidget', () => {
     for (const title of ['Starting view', 'Building view', 'Failed view']) {
       expect(html).toContain(`aria-label="Open ${title}"`)
     }
+    expect(html).not.toContain('Create new views when you need separate pages for focused tasks')
   })
 
   test('renders view launchers in the supplied order', () => {
@@ -70,6 +72,7 @@ describe('ViewsWidget', () => {
     expect(html).toContain('aria-label="View actions for Roadmap"')
     expect(html.indexOf('Reports')).toBeLessThan(html.indexOf('New view'))
     expect(html).toContain('aria-label="Create new view"')
+    expect(html).not.toContain('Create new views when you need separate pages for focused tasks')
   })
 
   test('renders the new-view launcher as the only item before a view exists', () => {
@@ -79,10 +82,19 @@ describe('ViewsWidget', () => {
     expect(html).toContain('>Views</h2>')
     expect(html).toContain('aria-label="Create new view"')
     expect(html.match(/<button/g)).toHaveLength(1)
+    expect(html).toContain('Create new views when you need separate pages for focused tasks')
+  })
+
+  test('hides the empty-state hint outside onboarding', () => {
+    const html = render([], false)
+
+    expect(html).toContain('aria-label="Create new view"')
+    expect(html).not.toContain('Create new views when you need separate pages for focused tasks')
   })
 })
 
-test('missing creation callback hides the action', () => {
-  const html = render([], false)
+test('missing creation callback hides the action without hiding onboarding', () => {
+  const html = render([], true, false)
   expect(html).not.toContain('New view')
+  expect(html).toContain('Create new views when you need separate pages for focused tasks')
 })
