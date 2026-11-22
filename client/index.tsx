@@ -4,6 +4,8 @@ import './structured-clone-shim'
 import 'blobatar/motion.css'
 import './index.css'
 
+import { queryClient } from './api/query-client'
+import { appSettingsQuery } from './features/app-settings/query'
 import { initializeLocalUser, subscribeLocalProfileStorage } from './features/collab/host-state'
 
 import { installIdentityHostApi } from './features/identity/host-api'
@@ -30,6 +32,7 @@ installIdentityHostApi()
 subscribeLocalProfileStorage()
 
 export async function init(el: HTMLElement) {
+  void queryClient.prefetchQuery(appSettingsQuery)
   // Startup config and any proxy-verified user load in parallel with the
   // main chunk, so both are available synchronously from the first render.
   const [{ mount }, config, proxyUser] = await Promise.all([

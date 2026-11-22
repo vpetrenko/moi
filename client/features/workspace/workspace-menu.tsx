@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { IconDots, IconLetterCase, IconSettings } from '@tabler/icons-react'
+import { IconLetterCase, IconSettings } from '@tabler/icons-react'
 
 import { WorkspaceIcon } from '@/client/components/shared/workspace-icon'
 import {
@@ -23,26 +23,27 @@ type WorkspaceMenuProps = {
 export function WorkspaceMenu({ onOpenTheme }: WorkspaceMenuProps) {
   const { layout, name, harness } = useWorkspaceLayoutCtx()
   const [iconHovered, setIconHovered] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
 
   return (
     <WorkspaceSettingsDialog>
-      <DropdownMenu>
+      <DropdownMenu onOpenChange={setMenuOpen}>
         <DropdownMenuTrigger
           className="flex min-w-0 cursor-pointer items-center gap-2 rounded-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
           aria-label={`${name ?? 'Workspace'} menu`}
           onPointerEnter={() => setIconHovered(true)}
           onPointerLeave={() => setIconHovered(false)}
         >
-          {iconHovered ? (
-            <IconDots size={20} stroke={1.5} className="shrink-0" aria-hidden="true" />
-          ) : (
-            <WorkspaceIcon
-              icon={layout.icon}
-              harness={harness}
-              workspaceTheme={layout.theme}
-              className="size-5 rounded-sm"
-            />
-          )}
+          <WorkspaceIcon
+            icon={
+              iconHovered || menuOpen
+                ? { ...layout.icon, type: 'glyph', value: 'dots' }
+                : layout.icon
+            }
+            harness={harness}
+            workspaceTheme={layout.theme}
+            className="size-5 rounded-sm"
+          />
           {name && <span className="truncate text-sm font-medium text-foreground">{name}</span>}
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" sideOffset={6} className="w-36">

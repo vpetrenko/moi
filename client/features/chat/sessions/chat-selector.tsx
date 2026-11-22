@@ -285,7 +285,7 @@ export function ChatSelector({ className }: ChatSelectorProps) {
   }
 
   return (
-    <div className="flex w-full min-w-0 items-center justify-between gap-1">
+    <div className="flex min-w-0 items-center gap-1">
       <SessionSelector className={className} sessions={sessions} />
       {selectedSessionId && (
         <Tooltip key="pin">

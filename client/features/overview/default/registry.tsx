@@ -9,7 +9,6 @@ export type DefaultWidgetRenderContext = {
   views: ViewInfo[]
   onOpenView: (viewId: string) => void
   onCreateView?: () => void
-  showOnboarding: boolean
 }
 
 type DefaultWidgetRenderer = (context: DefaultWidgetRenderContext) => ReactNode
@@ -20,7 +19,6 @@ const DEFAULT_WIDGET_RENDERERS: Record<DefaultWidgetId, DefaultWidgetRenderer> =
       views={context.views}
       onOpenView={context.onOpenView}
       onCreateView={context.onCreateView}
-      showOnboarding={context.showOnboarding}
     />
   )
 }

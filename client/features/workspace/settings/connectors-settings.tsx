@@ -48,7 +48,7 @@ function ConnectorsContent({ connectors }: ConnectorsContentProps) {
     return (
       <ConnectorsState>
         <IconPlugConnected size={24} stroke={1.5} className="text-muted-foreground" />
-        <p className="text-sm text-foreground">No connectors configured</p>
+        <p className="text-sm text-muted-foreground">No connectors configured</p>
       </ConnectorsState>
     )
   }

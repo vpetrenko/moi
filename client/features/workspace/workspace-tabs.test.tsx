@@ -33,7 +33,7 @@ describe('WorkspaceTabs', () => {
     }
   })
 
-  test('renders Overview without drag attributes and keeps other tabs reorderable', () => {
+  test('keeps Overview first and outside the sortable tabs', () => {
     const html = renderToStaticMarkup(
       createElement(WorkspaceTabs, {
         tabs: [
@@ -67,6 +67,10 @@ describe('WorkspaceTabs', () => {
     const overviewButton = html.match(/<button[^>]*aria-label="Overview"[^>]*>/)?.[0]
     const viewButton = html.match(/<button[^>]*aria-label="Test view"[^>]*>/)?.[0]
     expect(overviewButton).not.toContain('aria-roledescription')
+    // Overview is not part of the sortable list: it renders first, whatever the order
+    expect(html.indexOf('aria-label="Overview"')).toBeLessThan(
+      html.indexOf('aria-label="Test view"')
+    )
     expect(viewButton).toContain('aria-roledescription="sortable item"')
   })
 })

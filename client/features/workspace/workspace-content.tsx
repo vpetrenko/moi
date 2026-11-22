@@ -3,26 +3,18 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 
 import { AnimatePresence } from 'motion/react'
 
-import {
-  IconBrowserPlus,
-  IconLayout2,
-  IconLayoutSidebarRight,
-  IconSketching
-} from '@tabler/icons-react'
+import { IconBrowserPlus, IconLayout2, IconSketching } from '@tabler/icons-react'
 
 import { DrawingLayer } from '@/client/features/drawings/drawing-layer'
 import { DrawingToolbar } from '@/client/features/drawings/drawing-toolbar'
 import { useChatAnnotation } from '@/client/features/drawings/use-chat-annotation'
 import { ChatPanel } from '@/client/features/chat/chat-panel'
-import type { WelcomeDestination } from '@/client/features/chat/messages/chat-empty-state'
 import { ChatPopup } from '@/client/features/chat/chat-popup'
 import { ThemePanel } from '@/client/features/workspace/theme-panel'
 import { Overview } from '@/client/features/overview/overview'
 import { useAppConfig } from '@/client/api/app-config'
 import { WorkspaceSharingMenu } from '@/client/features/collab'
 import { PanelHeader } from '@/client/components/shared/panel-header'
-import { Button } from '@/client/components/ui/button'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/client/components/ui/tooltip'
 import { toast } from '@/client/components/ui/toast'
 import {
   useAppletChatMessage,
@@ -141,7 +133,6 @@ export function WorkspaceContent({ widgets, views: allViews }: WorkspaceContentP
   })
 
   const hasAppletWidgets = widgets.some(widget => !isDefaultWidget(widget.id))
-  const hasWorkspaceApplets = hasAppletWidgets || views.length > 0
 
   const revealChat = useCallback(() => {
     setFloatingChatOpen(true)
@@ -250,17 +241,6 @@ export function WorkspaceContent({ widgets, views: allViews }: WorkspaceContentP
   const createView = () => {
     // A pending view has no chat until its first submission.
     void viewActions.create().then(pendingView => openTab(viewTabId(pendingView.id)))
-  }
-
-  const navigateFromWelcome = (destination: WelcomeDestination) => {
-    if (destination === 'views') {
-      const firstView = views[0]
-      if (firstView) openTab(viewTabId(firstView.id))
-      else createView()
-    } else {
-      openTab(destination)
-    }
-    setFloatingChatOpen(false)
   }
 
   useWorkspaceEvent(workspaceId, event => {
@@ -412,7 +392,6 @@ export function WorkspaceContent({ widgets, views: allViews }: WorkspaceContentP
     agent: theme.agent,
     focusRequest: chatFocusRequest,
     chatLoaded: visibleChatLoaded,
-    hasWorkspaceApplets,
     view,
     forkedFromSessionId,
     previewTurn,
@@ -422,15 +401,20 @@ export function WorkspaceContent({ widgets, views: allViews }: WorkspaceContentP
     agentAvailability,
     send: sendChat,
     stop,
-    onNavigateFromWelcome: navigateFromWelcome,
     viewDraft: viewChatDraft
+  }
+
+  function showPopup(open: boolean) {
+    setFloatingChatOpen(open)
+    setMode('fullscreen')
   }
 
   const dockedChat = (
     <ChatPanel
       {...chatPanelProps}
       active={mode === 'split'}
-      onClose={() => setMode('fullscreen')}
+      onToggleDock={() => showPopup(true)}
+      onClose={() => showPopup(false)}
       annotation={dockedAnnotation}
       docked
     />
@@ -516,11 +500,11 @@ export function WorkspaceContent({ widgets, views: allViews }: WorkspaceContentP
             onComplete={() => void annotationControls.finish()}
           />
         </DrawingLayer>
-      </div>
 
-      <AnimatePresence>
-        {widgetMode === 'theming' && <ThemePanel onClose={() => setWidgetMode('idle')} />}
-      </AnimatePresence>
+        <AnimatePresence>
+          {widgetMode === 'theming' && <ThemePanel onClose={() => setWidgetMode('idle')} />}
+        </AnimatePresence>
+      </div>
 
       <PanelHeader>
         <div className="flex min-w-0 flex-1 items-center gap-4">
@@ -541,24 +525,6 @@ export function WorkspaceContent({ widgets, views: allViews }: WorkspaceContentP
             describeTab={tab => tabItemFor(tab, allViews, false, () => false)}
             onOpenTab={openTab}
           />
-        )}
-        {canUseSplit && mode === 'fullscreen' && (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => setMode('split')}
-                  aria-label="Dock chat"
-                  className="text-muted-foreground"
-                >
-                  <IconLayoutSidebarRight stroke={1.75} />
-                </Button>
-              }
-            />
-            <TooltipContent>Dock chat</TooltipContent>
-          </Tooltip>
         )}
       </PanelHeader>
     </WorkspacePane>
@@ -587,6 +553,14 @@ export function WorkspaceContent({ widgets, views: allViews }: WorkspaceContentP
             <ChatPanel
               {...chatPanelProps}
               active={floatingChatOpen}
+              onToggleDock={
+                canUseSplit
+                  ? () => {
+                      setFloatingChatOpen(false)
+                      setMode('split')
+                    }
+                  : undefined
+              }
               onClose={onClose}
               annotation={popupAnnotation}
             />

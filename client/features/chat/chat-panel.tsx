@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'wouter'
 
-import { IconArrowBackUp, IconChevronDown, IconChevronsRight, IconX } from '@tabler/icons-react'
+import {
+  IconArrowBackUp,
+  IconChevronDown,
+  IconChevronsRight,
+  IconLayoutSidebarRight,
+  IconPictureInPicture,
+  IconX
+} from '@tabler/icons-react'
 import { draftSessionId } from '@/lib/session-drafts'
 import { resolveUrl } from '@/lib/navigation'
 import { useCurrentTabId } from './sessions/use-selected-session'
@@ -22,11 +29,7 @@ import type { AgentTheme, SystemNotice, Turn, ViewState } from '@/lib/types'
 
 import type { ComposerBanner } from './composer/banners/composer-banner'
 import { ChatComposer, type ComposerAnnotationControls } from './composer/chat-composer'
-import {
-  ChatEmptyState,
-  type WelcomeDestination,
-  resolveChatEmptyState
-} from './messages/chat-empty-state'
+import { ChatEmptyState, resolveChatEmptyState } from './messages/chat-empty-state'
 import { ChatSelector } from './sessions/chat-selector'
 import { useWorkspaceSessions } from './sessions/api'
 import { TurnView } from './messages/turn-view'
@@ -48,7 +51,6 @@ type ChatPanelProps = {
   focusRequest?: number
   docked?: boolean
   chatLoaded: boolean
-  hasWorkspaceApplets: boolean
   view: ViewState
   // The live streaming preview as a synthetic assistant turn (or null). Merged
   // into the trailing assistant run so a thinking-only
@@ -61,7 +63,7 @@ type ChatPanelProps = {
   annotation?: ComposerAnnotationControls
   send: (text: string, options?: ChatSendOptions) => Promise<void>
   stop: () => void
-  onNavigateFromWelcome: (destination: WelcomeDestination) => void
+  onToggleDock?: () => void
   onClose: () => void
   viewDraft?: ViewChatDraft
 }
@@ -76,7 +78,6 @@ export function ChatPanel({
   focusRequest = 0,
   docked = false,
   chatLoaded,
-  hasWorkspaceApplets,
   view,
   previewTurn,
   sessionId,
@@ -86,7 +87,7 @@ export function ChatPanel({
   annotation,
   send,
   stop,
-  onNavigateFromWelcome,
+  onToggleDock,
   onClose,
   viewDraft
 }: ChatPanelProps) {
@@ -100,7 +101,6 @@ export function ChatPanel({
   const effectiveSessionId = viewDraft?.sessionId ?? sessionId ?? draftSessionId(tabId)
   const modelSessionId = viewDraft ? null : (sessionId ?? null)
   const turns = viewDraft ? EMPTY_TURNS : view.turns
-  const hasSentMessageFromMoi = useUiStore(state => state.hasSentMessageFromMoi)
   const isWorkspacePendingAnalysis = useUiStore(state =>
     (state.workspaceIdsPendingAnalysis ?? []).includes(workspaceId)
   )
@@ -137,7 +137,6 @@ export function ChatPanel({
   const emptyStateKind = resolveChatEmptyState({
     tabId,
     isViewDraft: !!viewDraft,
-    hasSentMessageFromMoi,
     isWorkspacePendingAnalysis
   })
 
@@ -173,22 +172,44 @@ export function ChatPanel({
     [handleSend, promptDisabled]
   )
 
+  const controlColor = docked ? 'text-muted-foreground' : 'text-foreground'
+  const dockLabel = docked ? 'Minimize chat' : 'Dock chat'
+  const DockIcon = docked ? IconPictureInPicture : IconLayoutSidebarRight
+
   return (
     <div className="flex min-h-0 flex-1 flex-col pt-2 pb-3">
       <header className="flex w-full min-w-0 items-center justify-between pr-2 pb-2 pl-2">
         <div className="flex h-7 min-w-0 flex-1">
-          <ChatSelector className={cn('text-foreground', docked && 'text-muted-foreground')} />
+          <ChatSelector className={controlColor} />
         </div>
+        {onToggleDock && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className={controlColor}
+                  onClick={onToggleDock}
+                  aria-label={dockLabel}
+                >
+                  <DockIcon stroke={1.75} />
+                </Button>
+              }
+            />
+            <TooltipContent>{dockLabel}</TooltipContent>
+          </Tooltip>
+        )}
         {docked && (
           <Tooltip>
             <TooltipTrigger
               render={
-                <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Undock chat">
-                  <IconChevronsRight className="size-5! text-muted-foreground" stroke={1.5} />
+                <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Collapse chat">
+                  <IconChevronsRight className={cn('size-5!', controlColor)} stroke={1.5} />
                 </Button>
               }
             />
-            <TooltipContent>Undock chat</TooltipContent>
+            <TooltipContent>Collapse chat</TooltipContent>
           </Tooltip>
         )}
         {!viewDraft && !docked && (
@@ -232,10 +253,8 @@ export function ChatPanel({
               <ChatEmptyState
                 agent={agent}
                 kind={emptyStateKind}
-                hasWorkspaceApplets={hasWorkspaceApplets}
                 disabled={promptDisabled}
                 onSelectPrompt={handlePromptSelect}
-                onNavigate={onNavigateFromWelcome}
               />
             )}
             {showTranscript &&

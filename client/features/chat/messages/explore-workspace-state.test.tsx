@@ -14,10 +14,8 @@ function renderExploreWorkspace(disabled = false): string {
     createElement(ChatEmptyState, {
       agent: 'boxy',
       kind: 'explore-workspace',
-      hasWorkspaceApplets: false,
       disabled,
-      onSelectPrompt: () => undefined,
-      onNavigate: () => undefined
+      onSelectPrompt: () => undefined
     })
   )
 }

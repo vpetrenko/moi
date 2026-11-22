@@ -63,15 +63,15 @@ export function HomePage() {
     )
   )
 
-  if (workspacesQuery.isPending || discoveredQuery.isPending) {
+  if (workspacesQuery.isPending) {
     return (
-      <div className="flex min-h-[50vh] items-center justify-center">
+      <div className="flex min-h-full items-center justify-center">
         <IconLoader2 size={20} stroke={1.5} className="animate-spin text-muted-foreground" />
       </div>
     )
   }
 
-  if (workspacesQuery.isError || discoveredQuery.isError) {
+  if (workspacesQuery.isError) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center">
         <p className="text-sm text-muted-foreground">Could not load spaces.</p>
@@ -79,7 +79,7 @@ export function HomePage() {
     )
   }
 
-  const discovered = discoveredQuery.data
+  const discovered = discoveredQuery.data ?? []
   const count = workspaces.length
 
   function handleAdd(suggestion: DiscoveredWorkspace) {
@@ -116,22 +116,21 @@ export function HomePage() {
           </div>
         </section>
       ) : (
-        <div className="mb-10 flex flex-col items-center gap-4 px-8 pt-8 pb-16 text-center">
-          <IconEggCracked size={56} stroke={0.75} className="text-muted-foreground" />
-          <div className="flex flex-col gap-1.5">
-            <h2 className="font-medium">Create your first workspace</h2>
-            <p className="mx-auto max-w-sm text-sm text-muted-foreground">
-              Workspace is a place for all views and widgets that share the same context. Create a
-              new one or import an existing folder you&rsquo;ve worked in before.
-            </p>
+        (appConfig.environment !== 'cloud' || sharedQuery.isSuccess) && (
+          <div className="mb-10 flex flex-col items-center gap-4 px-8 pt-8 pb-16 text-center">
+            <IconEggCracked size={56} stroke={0.75} className="text-muted-foreground" />
+            <div className="flex flex-col gap-1.5">
+              <h2 className="font-medium">Create your first workspace</h2>
+              <p className="mx-auto max-w-sm text-sm text-muted-foreground">
+                Workspace is a place for all views and widgets that share the same context. Create a
+                new one or import an existing folder you&rsquo;ve worked in before.
+              </p>
+            </div>
+            <CreateWorkspaceDialog trigger={<Button>New workspace</Button>} />
           </div>
-          <CreateWorkspaceDialog trigger={<Button>New workspace</Button>} />
-        </div>
+        )
       )}
 
-      {appConfig.environment === 'cloud' && sharedQuery.isPending && (
-        <p className="mb-12 text-sm text-muted-foreground">Loading shared workspaces…</p>
-      )}
       {appConfig.environment === 'cloud' && sharedQuery.isError && (
         <div className="mb-12" role="alert">
           <p className="text-sm text-muted-foreground">{sharedQuery.error.message}</p>

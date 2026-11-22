@@ -23,7 +23,6 @@ import type { GridItem, GridPosition, PositionedGridItem } from '@/client/featur
 import { WidgetShell } from '@/client/features/applets/widget-shell'
 import { Button } from '@/client/components/ui/button'
 import { cn } from '@/client/lib/cn'
-import { useUiStore } from '@/client/store/ui'
 import type { ViewInfo, WidgetInfo } from '@/lib/types'
 import { isDefaultWidget } from '@/lib/default-widgets'
 
@@ -33,10 +32,9 @@ import { WidgetCanvas } from './widget-canvas'
 
 type NoWidgetsCreatedProps = {
   onCreateWidget?: () => void
-  showOnboarding: boolean
 }
 
-function NoWidgetsCreated({ onCreateWidget, showOnboarding }: NoWidgetsCreatedProps) {
+function NoWidgetsCreated({ onCreateWidget }: NoWidgetsCreatedProps) {
   return (
     <div className="relative grid size-full grid-cols-2 grid-rows-1 gap-2 overflow-hidden">
       <div className="overflow-hidden rounded-2xl bg-muted texture-checker squircle">
@@ -44,15 +42,7 @@ function NoWidgetsCreated({ onCreateWidget, showOnboarding }: NoWidgetsCreatedPr
           <h2 className="text-2xl font-semibold text-foreground">Widgets</h2>
         </div>
       </div>
-      <div className="overflow-hidden rounded-2xl bg-muted texture-checker squircle">
-        {showOnboarding && (
-          <div className="flex size-full items-end justify-end">
-            <span className="m-8 max-w-56 text-right text-sm text-muted-foreground">
-              Widgets can surface information, read data, and perform actions
-            </span>
-          </div>
-        )}
-      </div>
+      <div className="overflow-hidden rounded-2xl bg-muted texture-checker squircle" />
       {onCreateWidget && (
         <Button
           type="button"
@@ -192,7 +182,6 @@ export function Overview({
   views
 }: OverviewProps) {
   const { layout, setLayout } = useWorkspaceLayoutCtx()
-  const hasSentMessageFromMoi = useUiStore(state => state.hasSentMessageFromMoi)
   const widgetById = new Map(widgets.map(widget => [widget.id, widget]))
 
   const gridIds = new Set(layout.widgetGrid.map(g => g.i))
@@ -208,8 +197,6 @@ export function Overview({
     .filter(w => !gridIds.has(w.id))
     .map(w => ({ id: w.id, w: w.config.colSpan, h: w.config.rowSpan }))
   const showCreationState = !customizing && visibleItems.every(item => isDefaultWidget(item.id))
-  const showOnboarding =
-    !hasSentMessageFromMoi && widgets.every(widget => isDefaultWidget(widget.id))
 
   const [panelRef, panelHeight] = usePanelHeight()
   const panelOpen = customizing
@@ -229,8 +216,7 @@ export function Overview({
     const defaultWidget = renderDefaultWidget(id, {
       views,
       onOpenView,
-      onCreateView,
-      showOnboarding
+      onCreateView
     })
     if (defaultWidget) return defaultWidget
     return <WidgetShell name={id} revision={widgetById.get(id)?.revision} />
@@ -271,9 +257,7 @@ export function Overview({
             />
           }
           emptyState={
-            showCreationState ? (
-              <NoWidgetsCreated onCreateWidget={onCreateWidget} showOnboarding={showOnboarding} />
-            ) : undefined
+            showCreationState ? <NoWidgetsCreated onCreateWidget={onCreateWidget} /> : undefined
           }
           bottomInset={panelOpen ? panelHeight : 0}
           renderItem={renderItem}

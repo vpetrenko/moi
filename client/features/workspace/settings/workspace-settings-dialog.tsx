@@ -6,6 +6,7 @@ import { Button } from '@/client/components/ui/button'
 import { Dialog, DialogContent, DialogTitle } from '@/client/components/ui/dialog'
 
 import { useAppConfig } from '@/client/api/app-config'
+import { useWorkspaceLayoutCtx } from '../workspace-layout-context'
 import { AgentsSettings } from './agents-settings'
 import { ConnectorsSettings } from './connectors-settings'
 import { EnvironmentSettings } from './environment-settings'
@@ -30,7 +31,12 @@ export function WorkspaceSettingsDialog({ children }: WorkspaceSettingsDialogPro
   const [page, setPage] = useState<SettingsNav>('general')
 
   const { environment } = useAppConfig()
-  const pages = environment === 'cloud' ? NAV : NAV.filter(item => item.id !== 'agents')
+  const { isRemote } = useWorkspaceLayoutCtx()
+  const pages = NAV.filter(item => {
+    if (item.id === 'environment') return !isRemote
+    if (item.id === 'agents') return environment === 'cloud'
+    return true
+  })
 
   return (
     <Dialog>

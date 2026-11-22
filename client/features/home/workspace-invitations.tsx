@@ -26,26 +26,16 @@ export function WorkspaceInvitations() {
     refetchOnWindowFocus: true,
     retry: false
   })
-  if (!cloud || query.data?.invitations.length === 0) return null
+  const invitations = query.data?.invitations
+  if (!cloud || !invitations?.length) return null
   return (
     <section className="mb-8">
       <h2 className="mb-4 text-sm font-medium">Invitations</h2>
-      {query.isPending ? (
-        <p className="text-sm text-muted-foreground">Loading invitations…</p>
-      ) : query.isError ? (
-        <div role="alert">
-          <p className="text-sm text-muted-foreground">{query.error.message}</p>
-          <Button variant="ghost" onClick={() => void query.refetch()}>
-            Retry
-          </Button>
-        </div>
-      ) : (
-        <ul className="border-t border-border">
-          {query.data.invitations.map(invitation => (
-            <InvitationRow key={invitation.id} invitation={invitation} />
-          ))}
-        </ul>
-      )}
+      <ul className="border-t border-border">
+        {invitations.map(invitation => (
+          <InvitationRow key={invitation.id} invitation={invitation} />
+        ))}
+      </ul>
     </section>
   )
 }

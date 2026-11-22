@@ -255,5 +255,5 @@ export function finishComposerSend(workspaceId: string, sent: readonly StagedAtt
   // preserving files staged while an HTTP submission was in flight.
   for (const attachment of sent)
     liveStore.getState().removeAttachment(workspaceId, attachment.localId)
-  useUiStore.getState().markMessageSentFromMoi(workspaceId)
+  useUiStore.getState().clearWorkspacePendingAnalysis(workspaceId)
 }
