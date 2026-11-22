@@ -1,4 +1,5 @@
 import { createElement } from 'react'
+import { IconDots } from '@tabler/icons-react'
 
 import claudeIcon from '@/client/assets/claude.svg'
 import hermesIcon from '@/client/assets/hermes.png'
@@ -18,13 +19,13 @@ export const harnessIcon: Record<HarnessType, string> = {
 
 type WorkspaceIconProps = {
   className?: string
-  icon?: WorkspaceIconValue
+  icon?: WorkspaceIconValue | { type: 'glyph'; value: 'dots'; background?: 'theme' }
   harness?: HarnessType | null
   workspaceTheme?: WorkspaceLayout['theme']
 }
 
 function renderIconContent(
-  icon: WorkspaceIconValue | undefined,
+  icon: WorkspaceIconProps['icon'],
   themed: boolean,
   fallbackIcon: string
 ) {
@@ -44,7 +45,7 @@ function renderIconContent(
     case 'upload':
       return <img src={icon.value} alt="" className="size-full" />
     case 'glyph': {
-      const Glyph = resolveIdentityIcon(icon.value)
+      const Glyph = icon.value === 'dots' ? IconDots : resolveIdentityIcon(icon.value)
       if (Glyph) {
         return createElement(Glyph, {
           'aria-hidden': true,

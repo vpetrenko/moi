@@ -1,4 +1,3 @@
-import { ScreenShell } from '@/client/components/shared/screen-shell'
 import { Redirect } from 'wouter'
 import { useOnboardingSettings } from '@/client/features/onboarding/api'
 import { OnboardingStatus } from '@/client/features/onboarding/onboarding-status'
@@ -8,12 +7,11 @@ import { HomePage } from '@/client/features/home/home-page'
 // The home route (`/`, or `/demo` in demo mode): the app shell wrapping the workspaces view.
 export function HomeRoute() {
   const onboarding = useOnboardingSettings()
-  if (onboarding.loading || onboarding.error)
+  if (onboarding.loading) return null
+  if (onboarding.error)
     return (
       <main className="flex h-dvh flex-col overflow-hidden">
-        <ScreenShell>
-          <OnboardingStatus error={onboarding.error || undefined} onRetry={onboarding.retry} />
-        </ScreenShell>
+        <OnboardingStatus error={onboarding.error} onRetry={onboarding.retry} />
       </main>
     )
   if (onboarding.enabled && onboarding.data?.showOnboarding) return <Redirect to="/onboarding" />
