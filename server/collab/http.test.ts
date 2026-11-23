@@ -115,7 +115,7 @@ describe('collab HTTP integration', () => {
     }
   })
 
-  test('ordinary and dev starts remain disabled without creating data', async () => {
+  test('ordinary and dev starts keep persistent collaboration disabled', async () => {
     expect(clientAppConfig().environment === 'cloud').toBe(false)
     expect((await command({ type: 'snapshot', scope: 'board' })).status).toBe(404)
     process.env.MOI_DEV = '1'

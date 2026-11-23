@@ -58,14 +58,16 @@ if (target.startsWith('ui/')) {
   // the captures the same.
   setLocalUser({ type: 'user', id: 'local-mole', name: 'Mole', color: 'blue' })
   const { hook } = memoryLocation({ path: target || '/' })
+  const CollabPage =
+    target === '/dev/collab'
+      ? (await import('@/client/features/dev/collab/collab-page')).CollabPage
+      : undefined
   createRoot(root).render(
     <QueryClientProvider client={queryClient}>
       <AppProvider>
         <TooltipProvider>
           <Router hook={hook}>
-            <AccountProvider>
-              <AppRouter />
-            </AccountProvider>
+            <AccountProvider>{CollabPage ? <CollabPage /> : <AppRouter />}</AccountProvider>
           </Router>
           <Toaster />
         </TooltipProvider>
