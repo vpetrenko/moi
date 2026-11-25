@@ -18,6 +18,8 @@ export type SharedWorkspaceEvent =
   | { type: 'view:deleted'; name: string }
   | { type: 'workspace-config:changed'; origin?: string }
   | { type: 'scratchpad:changed'; origin?: string }
+  // A synced state (`moi/server`) was saved; open applets read it again.
+  | { type: 'sync:changed' }
 
 export type HarnessEvent =
   | { type: 'harness:changed' }
@@ -54,6 +56,7 @@ export function isSharedWorkspaceEvent(event: { type?: unknown }): event is Shar
     case 'view:deleted':
     case 'workspace-config:changed':
     case 'scratchpad:changed':
+    case 'sync:changed':
       return true
     default:
       return false

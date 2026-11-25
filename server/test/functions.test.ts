@@ -10,6 +10,7 @@ import {
   parseFunctionPath,
   restartWorker
 } from '../applets/functions'
+import { setEventServer } from '../events'
 import {
   resetWorkspaceEnvForTest,
   setSecretStoreBackend,
@@ -256,5 +257,26 @@ describe('callFunctionEphemeral (one-shot isolated worker)', () => {
     // The pool worker's counter advanced by exactly one — the ephemeral call
     // ran elsewhere and its kill didn't reap the pool slot.
     expect(w2).toBe((w1 as number) + 1)
+  })
+})
+
+describe('syncedState (via worker)', () => {
+  test('a command changes the state and notifies the workspace; a read does not', async () => {
+    const published: { topic: string; data: unknown }[] = []
+    setEventServer({ publish: (topic, data) => published.push({ topic, data: JSON.parse(data) }) })
+    try {
+      const call = async (args: unknown[]) =>
+        parse(await callFunction('synced', 'counter', stringify(args), FIXTURES, 'ws-1'))
+
+      expect(await call([7])).toEqual({ value: 7 })
+      expect(await call([])).toEqual({ value: 7 })
+      // Dropped by the fixture's apply: nothing saved, nothing announced.
+      expect(await call(['nope'])).toEqual({ value: 7 })
+      expect(published).toEqual([
+        { topic: 'workspace-events:ws-1', data: { type: 'sync:changed' } }
+      ])
+    } finally {
+      setEventServer({ publish: () => {} })
+    }
   })
 })

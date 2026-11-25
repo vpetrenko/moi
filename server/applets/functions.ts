@@ -22,6 +22,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'path'
 
 import { agentCommand } from '../agent-launcher'
+import { publishEvent } from '../events'
 import { resolveWorkspaceEnv } from '../workspaces/env'
 
 const WORKER_PATH = serverEntry('applets/functions-worker.ts')
@@ -37,6 +38,8 @@ type Pending = {
 
 type Slot = {
   workspacePath: string
+  // Set by RPC calls; lets a synced state tell this workspace's windows it changed.
+  workspaceId?: string
   worker: ReturnType<typeof Bun.spawn>
   readyPromise: Promise<void>
   pending: Map<string, Pending>
@@ -175,6 +178,11 @@ function spawnSlot(workspacePath: string, workspaceEnv: Record<string, string>):
         return
       }
 
+      if (msg.type === 'changed') {
+        if (slot.workspaceId) publishEvent({ type: 'sync:changed', workspaceId: slot.workspaceId })
+        return
+      }
+
       if (msg.type === 'loaded' && msg.module) {
         slot.modules.add(msg.module)
         return
@@ -254,7 +262,8 @@ export async function callFunction(
   module: string,
   name: string,
   args: string,
-  workspacePath: string
+  workspacePath: string,
+  workspaceId?: string
 ): Promise<string> {
   // Resolve the workspace env before (maybe) spawning, so a fresh worker picks
   // up current .env + custom overrides. Env is fixed at spawn — an already-warm
@@ -262,6 +271,7 @@ export async function callFunction(
   // secrets scoped to the 'widgets' sink.
   const workspaceEnv = await resolveWorkspaceEnv(workspacePath)
   const slot = getOrSpawn(workspacePath, workspaceEnv)
+  if (workspaceId) slot.workspaceId = workspaceId
   await slot.readyPromise
   return callInSlot(slot, module, name, args)
 }

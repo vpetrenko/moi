@@ -12,9 +12,9 @@ import { getWorkspaceApiBase } from '@/client/features/workspace/remote'
 // Applet calls surface as runtime EVENTS: the bridge validates the untrusted
 // args, then emits, and each host feature subscribes to its own concern with
 // `useAppletEvent` (navigation owns `navigate`; chat will own `sendChatMessage`)
-// — no central handlers object assembled by the screen. Applet → host only;
-// if a host → applet direction is ever added (`moi.on(...)`), `dispose` must
-// also unbind those listeners or a disposed module leaks.
+// — no central handlers object assembled by the screen. The one host → applet
+// direction is `onSyncChanged`; `dispose` unbinds its listeners so a disposed
+// module does not leak.
 import { appletCollabApi, type AppletCollabApi } from '@/client/features/collab/applet-api'
 import {
   MAX_ATTACHMENT_LABEL_CHARS,
@@ -77,6 +77,7 @@ const CHAT_LIMITS = { cooldownMs: 2_000, windowMs: 60_000, maxPerWindow: 10, max
 
 function createRuntime(workspaceId: string) {
   const emitter = createNanoEvents<AppletEvents>()
+  const syncListeners = new Set<() => void>()
   // Keyed by `${source}\0${text}` — same applet, same message.
   const chatLimiter = createRateLimiter(CHAT_LIMITS)
 
@@ -120,6 +121,16 @@ function createRuntime(workspaceId: string) {
     on<K extends keyof AppletEvents>(event: K, cb: AppletEvents[K]) {
       return emitter.on(event, cb)
     },
+    // A synced state was saved, or the workspace connection came back.
+    notifySyncChanged() {
+      for (const listener of [...syncListeners]) {
+        try {
+          listener()
+        } catch (error) {
+          console.error('[moi/live] Sync listener failed', error)
+        }
+      }
+    },
     // One connection per loaded module instance. The bridge validates every
     // call — a malformed address or chat input from applet code drops the
     // call instead of being emitted — and `dispose` flips the connection dead
@@ -128,6 +139,7 @@ function createRuntime(workspaceId: string) {
     connect(identity: AppletIdentity, base = '') {
       let alive = true
       const source = appletSource(identity)
+      const ownSyncListeners = new Set<() => void>()
       const bridge: HostAppletBridge = {
         get collab() {
           return alive ? appletCollabApi : undefined
@@ -141,6 +153,15 @@ function createRuntime(workspaceId: string) {
             const message = errorMessage(error)
             toast.add({ title: 'Couldn’t add attachment', description: message, type: 'error' })
             drop(identity, `addChatAttachment() was dropped: ${message}`)
+          }
+        },
+        onSyncChanged(listener) {
+          if (!alive || typeof listener !== 'function') return () => {}
+          ownSyncListeners.add(listener)
+          syncListeners.add(listener)
+          return () => {
+            ownSyncListeners.delete(listener)
+            syncListeners.delete(listener)
           }
         },
         navigate(url) {
@@ -202,6 +223,8 @@ function createRuntime(workspaceId: string) {
         bridge,
         dispose: () => {
           alive = false
+          for (const listener of ownSyncListeners) syncListeners.delete(listener)
+          ownSyncListeners.clear()
         }
       }
     }

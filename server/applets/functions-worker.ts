@@ -3,6 +3,20 @@
 import { parse, stringify } from 'devalue'
 import { join, resolve, sep } from 'path'
 
+import { createSyncedState } from './synced-state'
+
+// `import { syncedState } from 'moi/server'` in workspace server code resolves
+// to this process, whatever the workspace installs.
+Bun.plugin({
+  name: 'moi-server',
+  setup(build) {
+    build.module('moi/server', () => ({
+      exports: { syncedState: createSyncedState(() => send({ type: 'changed' })) },
+      loader: 'object'
+    }))
+  }
+})
+
 const MEI_DIR =
   process.env.MEI_FUNCTIONS_DIR ?? join(import.meta.dir, '..', '..', 'test-workspace', '.moi')
 

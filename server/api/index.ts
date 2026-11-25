@@ -129,7 +129,8 @@ function eventOrigin(value: unknown): string | undefined {
 async function handleFunctionCall(
   req: Request,
   tail: string,
-  workspacePath: string
+  workspacePath: string,
+  workspaceId: string
 ): Promise<Response> {
   // Module keys may contain slashes (`widgets/hello/getWeather`), so the
   // tail is parsed on the last slash — see parseFunctionPath.
@@ -145,7 +146,7 @@ async function handleFunctionCall(
       return new Response('Request body too large', { status: 413 })
     }
     const args = await req.text()
-    const result = await callFunction(module, name, args, workspacePath)
+    const result = await callFunction(module, name, args, workspacePath, workspaceId)
     return new Response(result, {
       headers: { 'Content-Type': 'application/json' }
     })
@@ -372,7 +373,7 @@ one.get('/files/*', ownerWorkspace, c => {
 one.post('/rpc/*', ownerWorkspace, c => {
   const ws = c.get('ws')
   const tail = new URL(c.req.url).pathname.split(`${workspaceApiBase(ws.id)}/rpc/`)[1] ?? ''
-  return handleFunctionCall(c.req.raw, tail, ws.path)
+  return handleFunctionCall(c.req.raw, tail, ws.path, ws.id)
 })
 
 // Browser-side applet errors (module load failures, render crashes, window

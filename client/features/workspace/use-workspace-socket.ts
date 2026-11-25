@@ -2,6 +2,7 @@ import { useEffect, useMemo } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 
 import { workspaceKeys } from '@/client/api/workspace-keys'
+import { appletRuntime } from '@/client/features/applets/applet-runtime'
 import { useAppContext } from '@/client/runtime/app-context'
 import type { ReconnectingSocket } from '@/client/runtime/reconnecting-socket'
 import { isSharedWorkspaceEvent } from '@/lib/events'
@@ -34,9 +35,12 @@ export function useWorkspaceSocket(workspaceId: string): ReconnectingSocket {
         ])
           void queryClient.invalidateQueries({ queryKey })
         events.emit({ type: 'workspace:connected', workspaceId })
+        // Synced states catch up on changes missed while disconnected.
+        appletRuntime(workspaceId).notifySyncChanged()
       },
       message: message => {
         if (!isSharedWorkspaceEvent(message)) return
+        if (message.type === 'sync:changed') return appletRuntime(workspaceId).notifySyncChanged()
         if (message.type === 'workspace-config:changed') refreshOwnerInfo()
         events.emit({ ...message, workspaceId })
       }
