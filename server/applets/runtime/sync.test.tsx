@@ -29,6 +29,7 @@ let stored: List | undefined
 let online: boolean
 let reads: number
 let deliver: (message: SyncMessage) => boolean
+let before: ((call: { action: string; args: unknown[] }) => unknown) | undefined
 let windows: Window[]
 let roots: Root[]
 let restore: () => void
@@ -94,6 +95,7 @@ beforeEach(async () => {
   online = true
   reads = 0
   deliver = () => true
+  before = undefined
   windows = []
   roots = []
   const server = createSyncedState(message => {
@@ -104,7 +106,8 @@ beforeEach(async () => {
     load: () => stored,
     save: state => {
       stored = state
-    }
+    },
+    before: call => before?.(call) as boolean | void | unknown[]
   }) as unknown as (...args: unknown[]) => Promise<unknown>
   Object.assign(server, { [SYNC_KEY]: 'views/list/list' })
 
@@ -211,4 +214,58 @@ test('a window that missed an event reads the state again', async () => {
   await settle()
   expect(two.shown()).toEqual(['a', 'b', 'c'])
   expect(reads).toBe(3)
+})
+
+test('a call tells whether the server applied it', async () => {
+  const [one] = windows
+  let added: unknown
+  let again: unknown
+  await act(async () => {
+    void one.store.add('b').then(result => (added = result))
+    // Already in the list: changes nothing, so the server drops it.
+    void one.store.server.add('a').then(result => (again = result))
+  })
+  await settle()
+  expect(added).toEqual({ applied: true })
+  expect(again).toEqual({ applied: false })
+})
+
+test('onEvent reports every applied call once, and whose it was', async () => {
+  const [one, two] = windows
+  const seenByOne: unknown[] = []
+  const seenByTwo: unknown[] = []
+  const stop = one.store.onEvent((call, info) => seenByOne.push([call, info.own]))
+  two.store.onEvent((call, info) => seenByTwo.push([call, info.own]))
+  await act(async () => {
+    void one.store.add('b')
+    void one.store.add('b') // dropped: no event
+    void two.store.remove('a')
+  })
+  await settle()
+  const add = { action: 'add', args: ['b'] }
+  const remove = { action: 'remove', args: ['a'] }
+  expect(seenByOne).toEqual([
+    [add, true],
+    [remove, false]
+  ])
+  expect(seenByTwo).toEqual([
+    [add, false],
+    [remove, true]
+  ])
+
+  stop()
+  await act(async () => void two.store.add('c'))
+  await settle()
+  expect(seenByOne).toHaveLength(2)
+})
+
+test('arguments the server replaced win in every window, the sender too', async () => {
+  const [one, two] = windows
+  before = call => (call.action === 'add' ? [`${String(call.args[0])}!`] : true)
+  await act(async () => void one.store.add('b'))
+  expect(one.shown()).toEqual(['a', 'b'])
+  await settle()
+  expect(stored).toEqual({ items: ['a', 'b!'] })
+  expect(one.shown()).toEqual(['a', 'b!'])
+  expect(two.shown()).toEqual(['a', 'b!'])
 })

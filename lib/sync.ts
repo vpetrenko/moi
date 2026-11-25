@@ -10,7 +10,8 @@ export type SyncMessage = { key: string; rev: number; event: SyncEvent }
 
 // Answers of a synced state's RPC function: with no argument, and with an event.
 export type SyncSnapshot<S> = { rev: number; state: S }
-export type SyncAnswer = { rev: number; applied: boolean }
+// `event` is the call as the server ran it (a `before` hook may change the arguments).
+export type SyncAnswer = { rev: number; applied: boolean; event?: SyncEvent }
 
 export function isSyncEvent(value: unknown): value is SyncEvent {
   if (typeof value !== 'object' || value === null) return false

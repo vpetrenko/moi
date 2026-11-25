@@ -5,16 +5,29 @@
 // sends it to every window (see functions.ts).
 import type { StateDefinition, SyncActions, SyncedState, SyncedStorage } from 'moi/sync'
 
-import { isSyncEvent, type SyncAnswer, type SyncMessage, type SyncSnapshot } from '../../lib/sync'
+import {
+  isSyncEvent,
+  type SyncAnswer,
+  type SyncEvent,
+  type SyncMessage,
+  type SyncSnapshot
+} from '../../lib/sync'
 
 // The worker stores `<module>/<export>` here before a call, so events name their state.
 export const SYNC_KEY = Symbol.for('moi.sync.key')
 
+type Call = { action: string; args: unknown[] }
+
 export function createSyncedState(publish: (message: SyncMessage) => void) {
   return function syncedState<S, A extends SyncActions<S>>(
     definition: StateDefinition<S, A>,
-    storage: SyncedStorage<S>
+    storage: SyncedStorage<S, A>
   ): SyncedState<S, A> {
+    // The hooks see untyped calls here; the public type narrows them per action.
+    const hooks = storage as {
+      before?: (call: Call, state: S) => unknown
+      after?: (call: Call, state: S) => unknown
+    }
     // Starts at the clock, so a restarted worker never repeats an old number.
     let rev = Date.now()
     // The stored state the windows are in step with, as JSON text.
@@ -35,9 +48,14 @@ export function createSyncedState(publish: (message: SyncMessage) => void) {
         return { rev, applied: false }
       }
       const draft = JSON.parse(text) as S
+      const applied: SyncEvent = { id: event.id, action: event.action, args: event.args }
       try {
-        const action = definition.actions[event.action] as (state: S, ...args: unknown[]) => void
-        action(draft, ...event.args)
+        // The hook may drop the call (false) or replace its arguments (an array).
+        const verdict = await hooks.before?.({ action: applied.action, args: applied.args }, state)
+        if (verdict === false) return { rev, applied: false }
+        if (Array.isArray(verdict)) applied.args = verdict
+        const action = definition.actions[applied.action] as (state: S, ...args: unknown[]) => void
+        action(draft, ...applied.args)
       } catch (error) {
         console.error(`[moi] synced state action "${event.action}" was dropped:`, error)
         return { rev, applied: false }
@@ -49,9 +67,14 @@ export function createSyncedState(publish: (message: SyncMessage) => void) {
       known = next
       rev += 1
       const key = (call as { [SYNC_KEY]?: string })[SYNC_KEY]
-      if (key)
-        publish({ key, rev, event: { id: event.id, action: event.action, args: event.args } })
-      return { rev, applied: true }
+      if (key) publish({ key, rev, event: applied })
+      // Side effects do not hold back the next call, and their failure changes nothing.
+      void Promise.resolve()
+        .then(() => hooks.after?.({ action: applied.action, args: applied.args }, draft))
+        .catch(error => {
+          console.error(`[moi] synced state "after" hook failed for "${applied.action}":`, error)
+        })
+      return { rev, applied: true, event: applied }
     }
 
     const call = (...args: unknown[]) => {

@@ -32,7 +32,9 @@ const event = (action: string, ...args: unknown[]): SyncEvent => ({
   args
 })
 
-function setup(options: { failSave?: () => boolean } = {}) {
+type Hook = (call: { action: string; args: unknown[] }, state: List) => unknown
+
+function setup(options: { failSave?: () => boolean; before?: Hook; after?: Hook } = {}) {
   let stored: List | undefined
   const published: SyncMessage[] = []
   const call = createSyncedState(message => published.push(message))(definition, {
@@ -40,7 +42,9 @@ function setup(options: { failSave?: () => boolean } = {}) {
     save: state => {
       if (options.failSave?.()) throw new Error('disk full')
       stored = state
-    }
+    },
+    ...(options.before ? { before: options.before as never } : {}),
+    ...(options.after ? { after: options.after as never } : {})
   }) as unknown as Call
   Object.assign(call, { [SYNC_KEY]: 'views/list/list' })
   return { call, published, stored: () => stored, write: (state: List) => (stored = state) }
@@ -57,7 +61,7 @@ test('an applied action is saved and sent on with the next rev', async () => {
   const { call, published, stored } = setup()
   const { rev } = await call()
   const add = event('add', 'milk')
-  expect(await call(add)).toEqual({ rev: rev + 1, applied: true })
+  expect(await call(add)).toEqual({ rev: rev + 1, applied: true, event: add })
   expect(stored()).toEqual({ items: ['milk'] })
   expect(published).toEqual([{ key: 'views/list/list', rev: rev + 1, event: add }])
 })
@@ -102,4 +106,50 @@ test('a failed save does not block later calls', async () => {
   await expect(call(event('add', 'a'))).rejects.toThrow('disk full')
   fail = false
   expect((await call(event('add', 'b'))).applied).toBe(true)
+})
+
+test('before can drop a call, by returning false or by throwing', async () => {
+  const { call, published, stored } = setup({
+    before: ({ args }) => {
+      if (args[0] === 'forbidden') return false
+      if (args[0] === 'broken') throw new Error('no')
+    }
+  })
+  expect((await call(event('add', 'forbidden'))).applied).toBe(false)
+  expect((await call(event('add', 'broken'))).applied).toBe(false)
+  expect((await call(event('add', 'fine'))).applied).toBe(true)
+  expect(stored()).toEqual({ items: ['fine'] })
+  expect(published).toHaveLength(1)
+})
+
+test('before can replace the arguments; the answer and the event carry the new ones', async () => {
+  const { call, published, stored } = setup({
+    // Sees the state as stored before the action.
+    before: ({ args }, state) => [`${String(args[0]).toUpperCase()}#${state.items.length}`]
+  })
+  const add = event('add', 'milk')
+  const answer = await call(add)
+  const changed = { id: add.id, action: 'add', args: ['MILK#0'] }
+  expect(answer.event).toEqual(changed)
+  expect(published[0].event).toEqual(changed)
+  expect(stored()).toEqual({ items: ['MILK#0'] })
+})
+
+test('after runs once per applied call with the new state, and its failure changes nothing', async () => {
+  const seen: unknown[] = []
+  const { call, stored } = setup({
+    after: (applied, state) => {
+      seen.push([applied, structuredClone(state)])
+      throw new Error('mail server down')
+    }
+  })
+  expect((await call(event('add', 'milk'))).applied).toBe(true)
+  expect((await call(event('add', 'milk'))).applied).toBe(false)
+  expect((await call(event('add', 'eggs'))).applied).toBe(true)
+  await new Promise(resolve => setTimeout(resolve, 0))
+  expect(seen).toEqual([
+    [{ action: 'add', args: ['milk'] }, { items: ['milk'] }],
+    [{ action: 'add', args: ['eggs'] }, { items: ['milk', 'eggs'] }]
+  ])
+  expect(stored()).toEqual({ items: ['milk', 'eggs'] })
 })

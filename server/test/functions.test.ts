@@ -270,6 +270,7 @@ describe('syncedState (via worker)', () => {
           rev: number
           state?: unknown
           applied?: boolean
+          event?: unknown
         }
 
       const before = await call([])
@@ -277,7 +278,7 @@ describe('syncedState (via worker)', () => {
 
       const event = { id: 'e1', action: 'set', args: [7] }
       const answer = await call([event])
-      expect(answer).toEqual({ rev: before.rev + 1, applied: true })
+      expect(answer).toEqual({ rev: before.rev + 1, applied: true, event })
       expect(await call([])).toEqual({ rev: before.rev + 1, state: { value: 7 } })
 
       // Changes nothing, and an action the state does not have: both dropped.

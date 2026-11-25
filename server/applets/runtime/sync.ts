@@ -3,7 +3,14 @@
 // runs one action on the server. The server sends every applied event to all
 // windows through the host (see `onSync`), and each window runs it on its copy.
 import { useSyncExternalStore } from 'react'
-import type { StateDefinition, SyncActions, SyncedState, SyncedStore, SyncStatus } from 'moi/sync'
+import type {
+  StateDefinition,
+  SyncActions,
+  SyncedState,
+  SyncedStore,
+  SyncResult,
+  SyncStatus
+} from 'moi/sync'
 
 import {
   isSyncMessage,
@@ -26,10 +33,11 @@ type Pending = {
   event: SyncEvent
   // Shown at once. Otherwise the change shows when the server's event arrives.
   optimistic: boolean
-  done: () => void
+  done: (result: SyncResult) => void
 }
+type EventListener = (call: { action: string; args: unknown[] }, info: { own: boolean }) => void
 
-const RESERVED = ['use', 'useStatus', 'server', 'reconnect']
+const RESERVED = ['use', 'useStatus', 'server', 'reconnect', 'onEvent']
 
 function messageOf(error: unknown) {
   return error instanceof Error && error.message ? error.message : 'Could not connect'
@@ -53,6 +61,11 @@ export function createStore<S, A extends SyncActions<S>>(
   let shown = confirmed.state
   let status: SyncStatus = { status: 'connecting', loaded: false, pending: 0, error: undefined }
   const listeners = new Set<() => void>()
+  const eventListeners = new Set<EventListener>()
+  // Ids of this window's calls, to tell its own events from other windows'.
+  const ownIds = new Set<string>()
+  // Components and event listeners that keep the store connected.
+  let users = 0
   let stopListening: (() => void) | undefined
   // Requests go out one at a time, so the server gets this window's calls in order.
   let chain: Promise<void> = Promise.resolve()
@@ -103,6 +116,14 @@ export function createStore<S, A extends SyncActions<S>>(
         break
       }
       pending = pending.filter(op => op.event.id !== event.id)
+      const info = { own: ownIds.delete(event.id) }
+      for (const listener of [...eventListeners]) {
+        try {
+          listener({ action: event.action, args: event.args }, info)
+        } catch (error) {
+          console.error('[moi/sync] Event listener failed', error)
+        }
+      }
     }
     for (const rev of [...future.keys()]) if (rev <= confirmed.rev) future.delete(rev)
     if (future.size > 0) refresh()
@@ -149,16 +170,18 @@ export function createStore<S, A extends SyncActions<S>>(
         }
         unsent.shift()
         pending = pending.filter(other => other !== op)
-        if (answer?.applied) receive(answer.rev, op.event)
+        if (answer?.applied) receive(answer.rev, answer.event ?? op.event)
+        else ownIds.delete(op.event.id)
         publish(error ? { error } : { status: loaded ? 'live' : status.status, error: undefined })
-        op.done()
+        op.done({ applied: answer?.applied === true, ...(error ? { error } : {}) })
       }
     })
   }
 
   function send(action: string, args: unknown[], optimistic: boolean) {
-    return new Promise<void>(done => {
+    return new Promise<SyncResult>(done => {
       const op: Pending = { event: { id: crypto.randomUUID(), action, args }, optimistic, done }
+      ownIds.add(op.event.id)
       pending = [...pending, op]
       unsent.push(op)
       publish()
@@ -171,10 +194,9 @@ export function createStore<S, A extends SyncActions<S>>(
     refresh()
   }
 
-  // Connected while a component uses the store.
-  function subscribe(listener: () => void) {
-    listeners.add(listener)
-    if (listeners.size === 1) {
+  // Connected while a component or an event listener uses the store.
+  function connect() {
+    if (++users === 1) {
       stopListening = __getBridge()?.onSync?.(message => {
         // No message: the connection came back, events may have been missed.
         if (message === undefined) return reconnect()
@@ -184,11 +206,31 @@ export function createStore<S, A extends SyncActions<S>>(
       })
       reconnect()
     }
+    let connected = true
     return () => {
-      listeners.delete(listener)
-      if (listeners.size > 0) return
+      if (!connected) return
+      connected = false
+      if (--users > 0) return
       stopListening?.()
       stopListening = undefined
+    }
+  }
+
+  function subscribe(listener: () => void) {
+    listeners.add(listener)
+    const disconnect = connect()
+    return () => {
+      listeners.delete(listener)
+      disconnect()
+    }
+  }
+
+  function onEvent(listener: EventListener) {
+    eventListeners.add(listener)
+    const disconnect = connect()
+    return () => {
+      eventListeners.delete(listener)
+      disconnect()
     }
   }
 
@@ -204,8 +246,8 @@ export function createStore<S, A extends SyncActions<S>>(
     )
   }
 
-  const server: Record<string, (...args: unknown[]) => Promise<void>> = {}
-  const store: Record<string, unknown> = { use, useStatus, reconnect, server }
+  const server: Record<string, (...args: unknown[]) => Promise<SyncResult>> = {}
+  const store: Record<string, unknown> = { use, useStatus, reconnect, onEvent, server }
   for (const name of Object.keys(definition.actions)) {
     if (RESERVED.includes(name)) throw new Error(`"${name}" cannot be an action name`)
     store[name] = (...args: unknown[]) => send(name, args, true)
