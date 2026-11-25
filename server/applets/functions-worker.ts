@@ -15,10 +15,7 @@ Bun.plugin({
     build.module('moi/sync', () => ({
       exports: {
         defineState,
-        syncedState: createSyncedState(message => send({ type: 'sync', message })),
-        createStore() {
-          throw new Error("createStore() from 'moi/sync' runs in the browser, not in a .server.ts")
-        }
+        syncedState: createSyncedState(message => send({ type: 'sync', message }))
       },
       loader: 'object'
     }))

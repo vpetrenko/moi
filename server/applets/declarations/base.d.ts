@@ -119,7 +119,7 @@ declare module 'moi/sync' {
 
   export type SyncStatus = {
     status: 'connecting' | 'live' | 'reconnecting'
-    // False until the stored state arrived; `use()` gives `initial()` until then.
+    // False until the stored state arrived; `use` gives the first value until then.
     loaded: boolean
     // Calls of this window the server has not confirmed yet.
     pending: number
@@ -138,11 +138,8 @@ declare module 'moi/sync' {
     // The same actions, but the change shows only when the server confirms it.
     server: SyncCalls<A>
     // Hooks. Select a stored value (`store.use(s => s.items)`), not a new object.
-    use(): S
     use<U>(selector: (state: S) => U): U
     useStatus(): SyncStatus
-    // The state on screen, for code outside components.
-    get(): S
     // Try again now: send waiting calls and read the state.
     reconnect(): void
   }

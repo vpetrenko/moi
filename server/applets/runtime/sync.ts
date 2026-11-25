@@ -29,7 +29,7 @@ type Pending = {
   done: () => void
 }
 
-const RESERVED = ['use', 'useStatus', 'get', 'server', 'reconnect']
+const RESERVED = ['use', 'useStatus', 'server', 'reconnect']
 
 function messageOf(error: unknown) {
   return error instanceof Error && error.message ? error.message : 'Could not connect'
@@ -192,8 +192,8 @@ export function createStore<S, A extends SyncActions<S>>(
     }
   }
 
-  function use<U>(selector?: (state: S) => U) {
-    const select = () => (selector ? selector(shown) : shown)
+  function use<U>(selector: (state: S) => U) {
+    const select = () => selector(shown)
     return useSyncExternalStore(subscribe, select, select)
   }
   function useStatus() {
@@ -205,7 +205,7 @@ export function createStore<S, A extends SyncActions<S>>(
   }
 
   const server: Record<string, (...args: unknown[]) => Promise<void>> = {}
-  const store: Record<string, unknown> = { use, useStatus, get: () => shown, reconnect, server }
+  const store: Record<string, unknown> = { use, useStatus, reconnect, server }
   for (const name of Object.keys(definition.actions)) {
     if (RESERVED.includes(name)) throw new Error(`"${name}" cannot be an action name`)
     store[name] = (...args: unknown[]) => send(name, args, true)

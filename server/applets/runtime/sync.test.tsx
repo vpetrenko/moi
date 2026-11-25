@@ -159,7 +159,6 @@ test('actions from two windows end in the same state, last write wins', async ()
   await settle()
   expect(one.shown()).toEqual(stored!.items)
   expect(two.shown()).toEqual(stored!.items)
-  expect(one.store.get()).toEqual(two.store.get())
 })
 
 test('a call the server drops disappears from the screen', async () => {

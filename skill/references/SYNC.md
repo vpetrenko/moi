@@ -82,11 +82,11 @@ share one store, put it in a browser-only file next to them (`views/_todo-store.
   then dropped.
 - **Pass what the user saw.** "Clear completed" is `removeItems(ids)`, not `clearDone()`, or the
   server may remove an item someone ticked a moment later.
-- Action names `use`, `useStatus`, `get`, `server`, and `reconnect` are taken.
+- Action names `use`, `useStatus`, `server`, and `reconnect` are taken.
 
 ## In the view
 
-- Until `loaded` is true, `use()` gives the first value: show a skeleton.
+- Until `loaded` is true, `use` gives the first value: show a skeleton.
 - Select a stored value (`state => state.items`), not a new object.
 - Use `todo.server.<action>()` when a wrong guess on screen would confuse the user.
 - While offline, calls wait (`pending`) and are sent after the connection comes back.
