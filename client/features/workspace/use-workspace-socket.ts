@@ -35,12 +35,15 @@ export function useWorkspaceSocket(workspaceId: string): ReconnectingSocket {
         ])
           void queryClient.invalidateQueries({ queryKey })
         events.emit({ type: 'workspace:connected', workspaceId })
-        // Synced states catch up on changes missed while disconnected.
-        appletRuntime(workspaceId).notifySyncChanged()
+        // Synced states catch up on events missed while disconnected.
+        appletRuntime(workspaceId).notifySync()
       },
       message: message => {
         if (!isSharedWorkspaceEvent(message)) return
-        if (message.type === 'sync:changed') return appletRuntime(workspaceId).notifySyncChanged()
+        if (message.type === 'sync:event') {
+          const { type: _type, ...sync } = message
+          return appletRuntime(workspaceId).notifySync(sync)
+        }
         if (message.type === 'workspace-config:changed') refreshOwnerInfo()
         events.emit({ ...message, workspaceId })
       }

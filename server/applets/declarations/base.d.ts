@@ -74,64 +74,81 @@ declare module '*.svg' {
   export default s
 }
 
-// Shared state on the server. Import only in `.server.ts` files and export it
-// as `export const name = syncedState<State, Command>({ ... })`.
-declare module 'moi/server' {
-  export type SyncedStateOptions<S> = {
-    // Read the state from storage. Called for every command, so changes made
-    // outside (an agent editing the file) are picked up.
-    load(): S | Promise<S>
+// State shared by every window of a view or widget. Define it once in a file
+// both sides import, wrap it with `syncedState` in a `.server.ts`, and with
+// `createStore` in the browser.
+declare module 'moi/sync' {
+  // An action changes `state` in place; Moi hands it a fresh copy. It runs in
+  // the window and again on the server, so it must give the same result on
+  // both: no clock, no random ids (pass them as arguments). Arguments are JSON
+  // values and come from a browser: check what matters. Change nothing (or
+  // throw) when the call does not fit the state; it is then dropped.
+  export type SyncActions<S> = Record<string, (state: S, ...args: never[]) => void>
+  export type StateDefinition<S, A extends SyncActions<S>> = {
+    // A fresh copy of the first value.
+    initial(): S
+    actions: A
+  }
+  // Name the state type, pass the first value, then the actions:
+  // `defineState<Todo>({ items: [] }).actions({ addItem(state, id: string) { … } })`.
+  // `state` is typed as `Todo` in every action.
+  export function defineState<S>(initial: S): {
+    actions<A extends SyncActions<S>>(actions: A): StateDefinition<S, A>
+  }
+
+  // ---- Server: only in `.server.ts` files ----
+
+  export type SyncedStorage<S> = {
+    // Read the stored state; undefined when nothing is stored yet. Called for
+    // every action, so changes made outside (an agent editing the file) are kept.
+    load(): S | undefined | Promise<S | undefined>
     save(state: S): void | Promise<void>
-    // Apply one command to the current state. The command comes from a
-    // browser: check its shape first. Return the same state (or throw) to drop
-    // a command that does not fit the current state.
-    apply(state: S, command: unknown): S
   }
   // Type carriers only; never set.
-  export type SyncedState<S, C> = { readonly __state?: S; readonly __command?: C }
-  // One state shared by every window. Windows send commands; the server
-  // applies them one at a time, in the order they arrive, so the last write
-  // wins. State and commands are JSON values.
-  export function syncedState<S, C>(options: SyncedStateOptions<S>): SyncedState<S, C>
-}
+  export type SyncedState<S, A> = { readonly __state?: S; readonly __actions?: A }
+  // Export as `export const name = syncedState(definition, storage)`. The
+  // server runs the windows' action calls one at a time, in the order they
+  // arrive (the last write wins), saves, and sends each applied call to every
+  // window.
+  export function syncedState<S, A extends SyncActions<S>>(
+    definition: StateDefinition<S, A>,
+    storage: SyncedStorage<S>
+  ): SyncedState<S, A>
 
-// Browser side of a synced state: a store, used like a Zustand store.
-declare module 'moi/live' {
-  import type { SyncedState } from 'moi/server'
+  // ---- Browser ----
 
-  export type LiveStatus = 'connecting' | 'live' | 'reconnecting'
-  // Send one command to the server. Resolves when the server has answered and
-  // the store holds the result (or the command was dropped).
-  // - Without `optimistic`, the state changes only when the server answers.
-  // - With `optimistic`, the change shows at once. It must be pure: Moi runs it
-  //   again on each new server state until the server answers, and then the
-  //   server's state replaces it.
-  // While offline, commands wait and are sent after the connection comes back.
-  export type SyncedSend<S, C> = (command: C, optimistic?: (state: S) => S) => Promise<void>
-  export type SyncedStoreSnapshot<S> = {
-    // Server state with optimistic changes on top. Undefined until loaded.
-    state: S | undefined
-    status: LiveStatus
-    // Commands the server has not answered yet.
+  export type SyncStatus = {
+    status: 'connecting' | 'live' | 'reconnecting'
+    // False until the stored state arrived; `use()` gives `initial()` until then.
+    loaded: boolean
+    // Calls of this window the server has not confirmed yet.
     pending: number
     // Why the last request failed.
     error: string | undefined
   }
-  export type SyncedStore<S, T> = {
-    // A hook. Rerenders when the selected value changes, so select a stored
-    // value (`store(s => s.state?.items)`), not a new object.
-    (): SyncedStoreSnapshot<S>
-    <U>(selector: (snapshot: SyncedStoreSnapshot<S>) => U): U
-    // The actions made by `createSyncedStore`. Stable; call them from handlers.
-    actions: T
-    getState(): S | undefined
-    // Try again now: send waiting commands and read the state.
+  type SyncCalls<A> = {
+    [K in keyof A]: A[K] extends (state: never, ...args: infer P) => void
+      ? (...args: P) => Promise<void>
+      : never
+  }
+  // The actions as methods, plus the hooks. `store.addItem(...)` shows the
+  // change at once and sends the call to the server; the promise resolves when
+  // the server answered. A call the server drops disappears from the screen.
+  export type SyncedStore<S, A> = SyncCalls<A> & {
+    // The same actions, but the change shows only when the server confirms it.
+    server: SyncCalls<A>
+    // Hooks. Select a stored value (`store.use(s => s.items)`), not a new object.
+    use(): S
+    use<U>(selector: (state: S) => U): U
+    useStatus(): SyncStatus
+    // The state on screen, for code outside components.
+    get(): S
+    // Try again now: send waiting calls and read the state.
     reconnect(): void
   }
-  // Create once, at module level. Pass the value imported from a `.server.ts`.
-  // `get` returns the state on screen.
-  export function createSyncedStore<S, C, T>(
-    state: SyncedState<S, C>,
-    actions: (send: SyncedSend<S, C>, get: () => S | undefined) => T
-  ): SyncedStore<S, T>
+  // Create once, at module level. `remote` is the value imported from the `.server.ts`.
+  export function createStore<S, A extends SyncActions<S>>(
+    definition: StateDefinition<S, A>,
+    remote: SyncedState<S, A>
+  ): SyncedStore<S, A>
 }

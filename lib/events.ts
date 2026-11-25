@@ -1,4 +1,5 @@
 import type { NavigationRequest } from './navigation'
+import type { SyncMessage } from './sync'
 import type {
   AppSettings,
   CompiledView,
@@ -18,8 +19,8 @@ export type SharedWorkspaceEvent =
   | { type: 'view:deleted'; name: string }
   | { type: 'workspace-config:changed'; origin?: string }
   | { type: 'scratchpad:changed'; origin?: string }
-  // A synced state (`moi/server`) was saved; open applets read it again.
-  | { type: 'sync:changed' }
+  // A synced state (`moi/sync`) applied an action; every open applet runs it too.
+  | ({ type: 'sync:event' } & SyncMessage)
 
 export type HarnessEvent =
   | { type: 'harness:changed' }
@@ -56,7 +57,7 @@ export function isSharedWorkspaceEvent(event: { type?: unknown }): event is Shar
     case 'view:deleted':
     case 'workspace-config:changed':
     case 'scratchpad:changed':
-    case 'sync:changed':
+    case 'sync:event':
       return true
     default:
       return false

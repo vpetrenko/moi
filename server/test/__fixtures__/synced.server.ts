@@ -1,13 +1,12 @@
-import { syncedState } from 'moi/server'
+import { syncedState } from 'moi/sync'
 
-type Counter = { value: number }
+import { counterState, type Counter } from './synced-state'
 
-let stored: Counter = { value: 0 }
+let stored: Counter | undefined
 
-export const counter = syncedState<Counter, number>({
+export const counter = syncedState(counterState, {
   load: () => stored,
   save: state => {
     stored = state
-  },
-  apply: (state, command) => (typeof command === 'number' ? { value: command } : state)
+  }
 })

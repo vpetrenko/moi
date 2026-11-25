@@ -261,19 +261,34 @@ describe('callFunctionEphemeral (one-shot isolated worker)', () => {
 })
 
 describe('syncedState (via worker)', () => {
-  test('a command changes the state and notifies the workspace; a read does not', async () => {
-    const published: { topic: string; data: unknown }[] = []
+  test('an applied action is sent on to the workspace; a read or a dropped one is not', async () => {
+    const published: { topic: string; data: Record<string, unknown> }[] = []
     setEventServer({ publish: (topic, data) => published.push({ topic, data: JSON.parse(data) }) })
     try {
       const call = async (args: unknown[]) =>
-        parse(await callFunction('synced', 'counter', stringify(args), FIXTURES, 'ws-1'))
+        parse(await callFunction('synced', 'counter', stringify(args), FIXTURES, 'ws-1')) as {
+          rev: number
+          state?: unknown
+          applied?: boolean
+        }
 
-      expect(await call([7])).toEqual({ value: 7 })
-      expect(await call([])).toEqual({ value: 7 })
-      // Dropped by the fixture's apply: nothing saved, nothing announced.
-      expect(await call(['nope'])).toEqual({ value: 7 })
+      const before = await call([])
+      expect(before.state).toEqual({ value: 0 })
+
+      const event = { id: 'e1', action: 'set', args: [7] }
+      const answer = await call([event])
+      expect(answer).toEqual({ rev: before.rev + 1, applied: true })
+      expect(await call([])).toEqual({ rev: before.rev + 1, state: { value: 7 } })
+
+      // Changes nothing, and an action the state does not have: both dropped.
+      expect((await call([{ id: 'e2', action: 'set', args: [7] }])).applied).toBe(false)
+      expect((await call([{ id: 'e3', action: 'constructor', args: [] }])).applied).toBe(false)
+
       expect(published).toEqual([
-        { topic: 'workspace-events:ws-1', data: { type: 'sync:changed' } }
+        {
+          topic: 'workspace-events:ws-1',
+          data: { type: 'sync:event', key: 'synced/counter', rev: before.rev + 1, event }
+        }
       ])
     } finally {
       setEventServer({ publish: () => {} })

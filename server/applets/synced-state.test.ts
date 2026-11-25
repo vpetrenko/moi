@@ -1,75 +1,105 @@
 import { expect, test } from 'bun:test'
 
-import { createSyncedState } from './synced-state'
+import type { SyncAnswer, SyncEvent, SyncMessage, SyncSnapshot } from '../../lib/sync'
 
-type Counter = { value: number }
-type Call = (command?: unknown) => Promise<Counter>
+import { createSyncedState, SYNC_KEY } from './synced-state'
 
-function setup(apply: (state: Counter, command: unknown) => Counter) {
-  let stored: Counter = { value: 0 }
-  const saved: Counter[] = []
-  let changes = 0
-  const syncedState = createSyncedState(() => changes++)
-  const call = syncedState<Counter, number>({
-    load: () => stored,
-    save: state => {
-      stored = state
-      saved.push(state)
-    },
-    apply
-  }) as unknown as Call
-  return { call, saved, changes: () => changes, write: (state: Counter) => (stored = state) }
+type List = { items: string[] }
+type Call = {
+  (): Promise<SyncSnapshot<List>>
+  (event: unknown): Promise<SyncAnswer>
 }
 
-const set = (state: Counter, command: unknown): Counter =>
-  typeof command === 'number' ? { value: command } : state
+const definition = {
+  initial: (): List => ({ items: [] }),
+  actions: {
+    add(state: List, item: string) {
+      if (!state.items.includes(item)) state.items.push(item)
+    },
+    remove(state: List, item: string) {
+      state.items = state.items.filter(other => other !== item)
+    },
+    fail() {
+      throw new Error('boom')
+    }
+  }
+}
 
-test('a call without a command reads the state and saves nothing', async () => {
-  const { call, saved, changes } = setup(set)
-  expect(await call()).toEqual({ value: 0 })
-  expect(saved).toEqual([])
-  expect(changes()).toBe(0)
+let nextId = 0
+const event = (action: string, ...args: unknown[]): SyncEvent => ({
+  id: `e${nextId++}`,
+  action,
+  args
 })
 
-test('commands apply in arrival order, so the last write wins', async () => {
-  const { call, saved, changes } = setup(set)
-  const answers = await Promise.all([call(1), call(2), call(3)])
-  expect(answers).toEqual([{ value: 1 }, { value: 2 }, { value: 3 }])
-  expect(saved.at(-1)).toEqual({ value: 3 })
-  expect(changes()).toBe(3)
+function setup(options: { failSave?: () => boolean } = {}) {
+  let stored: List | undefined
+  const published: SyncMessage[] = []
+  const call = createSyncedState(message => published.push(message))(definition, {
+    load: () => stored,
+    save: state => {
+      if (options.failSave?.()) throw new Error('disk full')
+      stored = state
+    }
+  }) as unknown as Call
+  Object.assign(call, { [SYNC_KEY]: 'views/list/list' })
+  return { call, published, stored: () => stored, write: (state: List) => (stored = state) }
+}
+
+test('a read gives the initial state when nothing is stored, and saves nothing', async () => {
+  const { call, published, stored } = setup()
+  expect((await call()).state).toEqual({ items: [] })
+  expect(stored()).toBeUndefined()
+  expect(published).toEqual([])
 })
 
-test('a command that does not fit is dropped: no save, no notice, current state back', async () => {
-  const { call, saved, changes } = setup((state, command) => {
-    if (command === 'boom') throw new Error('boom')
-    return set(state, command)
-  })
-  await call(5)
-  expect(await call('not a number')).toEqual({ value: 5 })
-  expect(await call('boom')).toEqual({ value: 5 })
-  expect(saved).toEqual([{ value: 5 }])
-  expect(changes()).toBe(1)
+test('an applied action is saved and sent on with the next rev', async () => {
+  const { call, published, stored } = setup()
+  const { rev } = await call()
+  const add = event('add', 'milk')
+  expect(await call(add)).toEqual({ rev: rev + 1, applied: true })
+  expect(stored()).toEqual({ items: ['milk'] })
+  expect(published).toEqual([{ key: 'views/list/list', rev: rev + 1, event: add }])
 })
 
-test('each command starts from storage, so outside edits are kept', async () => {
-  const { call, write } = setup((state, command) =>
-    typeof command === 'number' ? { value: state.value + command } : state
-  )
-  await call(1)
-  write({ value: 100 })
-  expect(await call(1)).toEqual({ value: 101 })
+test('actions run in arrival order, so the last write wins', async () => {
+  const { call, published, stored } = setup()
+  await Promise.all([call(event('add', 'a')), call(event('remove', 'a')), call(event('add', 'b'))])
+  expect(stored()).toEqual({ items: ['b'] })
+  const revs = published.map(message => message.rev)
+  expect(revs).toEqual([revs[0], revs[0] + 1, revs[0] + 2])
+})
+
+test('a call that does not fit is dropped: no save, no event, same rev', async () => {
+  const { call, published, stored } = setup()
+  await call(event('add', 'milk'))
+  const { rev } = await call()
+  for (const dropped of [
+    event('add', 'milk'), // changes nothing
+    event('fail'), // throws
+    event('toString'), // not an action of this state
+    { action: 'add', args: ['x'] }, // not an event
+    'add'
+  ]) {
+    expect(await call(dropped)).toEqual({ rev, applied: false })
+  }
+  expect(stored()).toEqual({ items: ['milk'] })
+  expect(published).toHaveLength(1)
+})
+
+test('an outside edit is kept and leaves a gap in rev, so windows read the state again', async () => {
+  const { call, published, write } = setup()
+  await call(event('add', 'a'))
+  write({ items: ['a', 'edited outside'] })
+  await call(event('add', 'b'))
+  expect((await call()).state).toEqual({ items: ['a', 'edited outside', 'b'] })
+  expect(published[1].rev).toBeGreaterThan(published[0].rev + 1)
 })
 
 test('a failed save does not block later calls', async () => {
   let fail = true
-  const call = createSyncedState(() => {})<Counter, number>({
-    load: () => ({ value: 0 }),
-    save: () => {
-      if (fail) throw new Error('disk full')
-    },
-    apply: set
-  }) as unknown as Call
-  await expect(call(1)).rejects.toThrow('disk full')
+  const { call } = setup({ failSave: () => fail })
+  await expect(call(event('add', 'a'))).rejects.toThrow('disk full')
   fail = false
-  expect(await call(2)).toEqual({ value: 2 })
+  expect((await call(event('add', 'b'))).applied).toBe(true)
 })

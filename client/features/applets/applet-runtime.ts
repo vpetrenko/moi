@@ -13,7 +13,7 @@ import { getWorkspaceApiBase } from '@/client/features/workspace/remote'
 // args, then emits, and each host feature subscribes to its own concern with
 // `useAppletEvent` (navigation owns `navigate`; chat will own `sendChatMessage`)
 // — no central handlers object assembled by the screen. The one host → applet
-// direction is `onSyncChanged`; `dispose` unbinds its listeners so a disposed
+// direction is `onSync`; `dispose` unbinds its listeners so a disposed
 // module does not leak.
 import { appletCollabApi, type AppletCollabApi } from '@/client/features/collab/applet-api'
 import {
@@ -37,6 +37,7 @@ import { reportAppletError } from '@/client/features/applets/applet-log'
 import { toast } from '@/client/components/ui/toast'
 import { createRateLimiter, type RateLimiter } from '@/client/lib/rate-limit'
 import { useLatestRef } from '@/client/lib/use-latest-ref'
+import type { SyncMessage } from '@/lib/sync'
 import { isParamsRecord } from '@/lib/workspace-tabs'
 import { resolveUrl } from '@/lib/navigation'
 
@@ -77,7 +78,7 @@ const CHAT_LIMITS = { cooldownMs: 2_000, windowMs: 60_000, maxPerWindow: 10, max
 
 function createRuntime(workspaceId: string) {
   const emitter = createNanoEvents<AppletEvents>()
-  const syncListeners = new Set<() => void>()
+  const syncListeners = new Set<(message?: unknown) => void>()
   // Keyed by `${source}\0${text}` — same applet, same message.
   const chatLimiter = createRateLimiter(CHAT_LIMITS)
 
@@ -121,13 +122,14 @@ function createRuntime(workspaceId: string) {
     on<K extends keyof AppletEvents>(event: K, cb: AppletEvents[K]) {
       return emitter.on(event, cb)
     },
-    // A synced state was saved, or the workspace connection came back.
-    notifySyncChanged() {
+    // A synced state applied an action (`message`), or the workspace
+    // connection came back (no message).
+    notifySync(message?: SyncMessage) {
       for (const listener of [...syncListeners]) {
         try {
-          listener()
+          listener(message)
         } catch (error) {
-          console.error('[moi/live] Sync listener failed', error)
+          console.error('[moi/sync] Sync listener failed', error)
         }
       }
     },
@@ -139,7 +141,7 @@ function createRuntime(workspaceId: string) {
     connect(identity: AppletIdentity, base = '') {
       let alive = true
       const source = appletSource(identity)
-      const ownSyncListeners = new Set<() => void>()
+      const ownSyncListeners = new Set<(message?: unknown) => void>()
       const bridge: HostAppletBridge = {
         get collab() {
           return alive ? appletCollabApi : undefined
@@ -155,7 +157,7 @@ function createRuntime(workspaceId: string) {
             drop(identity, `addChatAttachment() was dropped: ${message}`)
           }
         },
-        onSyncChanged(listener) {
+        onSync(listener) {
           if (!alive || typeof listener !== 'function') return () => {}
           ownSyncListeners.add(listener)
           syncListeners.add(listener)

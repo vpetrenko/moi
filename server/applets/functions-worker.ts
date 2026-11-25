@@ -3,15 +3,23 @@
 import { parse, stringify } from 'devalue'
 import { join, resolve, sep } from 'path'
 
-import { createSyncedState } from './synced-state'
+import { defineState } from '../../lib/sync'
 
-// `import { syncedState } from 'moi/server'` in workspace server code resolves
-// to this process, whatever the workspace installs.
+import { createSyncedState, SYNC_KEY } from './synced-state'
+
+// `import { defineState, syncedState } from 'moi/sync'` in workspace server
+// code resolves to this process, whatever the workspace installs.
 Bun.plugin({
-  name: 'moi-server',
+  name: 'moi-sync',
   setup(build) {
-    build.module('moi/server', () => ({
-      exports: { syncedState: createSyncedState(() => send({ type: 'changed' })) },
+    build.module('moi/sync', () => ({
+      exports: {
+        defineState,
+        syncedState: createSyncedState(message => send({ type: 'sync', message })),
+        createStore() {
+          throw new Error("createStore() from 'moi/sync' runs in the browser, not in a .server.ts")
+        }
+      },
       loader: 'object'
     }))
   }
@@ -120,6 +128,9 @@ process.on('message', async (raw: IncomingMessage) => {
       if (typeof fn !== 'function') {
         throw new Error(`"${name}" in ${moduleName}.server.ts is not a function`)
       }
+
+      // A synced state names its events by where it is exported.
+      if (SYNC_KEY in fn) Object.assign(fn, { [SYNC_KEY]: `${moduleName}/${name}` })
 
       const parsedArgs = parse(args) as unknown[]
       const result = await fn(...parsedArgs)

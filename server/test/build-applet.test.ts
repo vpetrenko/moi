@@ -228,11 +228,11 @@ describe('buildApplet', () => {
     await expect(buildApplet(join(FIXTURES, 'bad-const.tsx'))).rejects.toThrow('"API_VERSION"')
   })
 
-  test('a syncedState export becomes an RPC stub and moi/live is bundled', async () => {
+  test('a syncedState export becomes an RPC stub and moi/sync is bundled', async () => {
     const result = await buildApplet(join(FIXTURES, 'with-synced.tsx'), undefined, 'view')
     expect(result.serverModules).toEqual([{ name: 'synced', exports: ['counter'] }])
     expect(result.js).toContain('rpc("synced", "counter")')
-    expect(result.js).toContain('function createSyncedStore')
+    expect(result.js).toContain('function createStore')
   })
 
   test('produces inline source maps', async () => {

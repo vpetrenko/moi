@@ -436,7 +436,7 @@ Inspect source only for local customizations, doc conflicts, or concrete build i
 ### Server functions
 
 In `<name>.server.ts`, export named `async function`s (only — no `const`, sync, or class; the one
-exception is a [synced state](references/LIVE.md) for data several users change together) and call
+exception is a [synced state](references/SYNC.md) for data several users change together) and call
 them from the component like ordinary async functions; arguments and return values are auto-serialized (`Date`, `Map`,
 `Set`, … work). They run on the Bun server with `process.env` and full filesystem access, at
 `cwd = <workspace root>` (the parent of `.moi/`, where you operate) — so workspace files are plain

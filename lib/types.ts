@@ -15,9 +15,10 @@ export type AppletKind = 'view' | 'widget'
 export type AppletBridge = {
   addChatAttachment: (input: unknown) => void
   navigate: (url: unknown) => void
-  // Call `listener` when a synced state of this workspace may have changed:
-  // after a save, and after the connection comes back. Returns the unsubscribe.
-  onSyncChanged: (listener: () => void) => () => void
+  // Listen to the workspace's synced states (`moi/sync`). `message` is one
+  // applied action (a `SyncMessage`); no message means the connection came
+  // back and events may have been missed. Returns the unsubscribe.
+  onSync: (listener: (message?: unknown) => void) => () => void
   resolveUrl: (url: unknown) => string
   sendChatMessage: (input: unknown, context?: unknown) => void
 }

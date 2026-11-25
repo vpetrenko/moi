@@ -23,6 +23,7 @@ import { join } from 'path'
 
 import { agentCommand } from '../agent-launcher'
 import { publishEvent } from '../events'
+import { isSyncMessage } from '@/lib/sync'
 import { resolveWorkspaceEnv } from '../workspaces/env'
 
 const WORKER_PATH = serverEntry('applets/functions-worker.ts')
@@ -38,7 +39,7 @@ type Pending = {
 
 type Slot = {
   workspacePath: string
-  // Set by RPC calls; lets a synced state tell this workspace's windows it changed.
+  // Set by RPC calls; lets a synced state send its events to this workspace's windows.
   workspaceId?: string
   worker: ReturnType<typeof Bun.spawn>
   readyPromise: Promise<void>
@@ -178,8 +179,11 @@ function spawnSlot(workspacePath: string, workspaceEnv: Record<string, string>):
         return
       }
 
-      if (msg.type === 'changed') {
-        if (slot.workspaceId) publishEvent({ type: 'sync:changed', workspaceId: slot.workspaceId })
+      if (msg.type === 'sync') {
+        const sync = (message as { message?: unknown }).message
+        if (slot.workspaceId && isSyncMessage(sync)) {
+          publishEvent({ type: 'sync:event', workspaceId: slot.workspaceId, ...sync })
+        }
         return
       }
 

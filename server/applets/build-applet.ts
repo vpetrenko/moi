@@ -34,7 +34,7 @@ const EXTERNAL_MODULES = [
 const RPC_MODULE_PATH = appletRuntime('rpc')
 const MOI_MODULE_PATH = appletRuntime('moi')
 const COLLAB_MODULE_PATH = appletRuntime('collab')
-const LIVE_MODULE_PATH = appletRuntime('live')
+const SYNC_MODULE_PATH = appletRuntime('sync')
 
 type ServerModule = {
   name: string
@@ -78,7 +78,7 @@ async function validateServerExports(filePath: string): Promise<string[]> {
 
   for (const name of runtimeExports) {
     const escaped = escapeRegex(name)
-    // A synced state from 'moi/server' is called over RPC like a function.
+    // A synced state from 'moi/sync' is called over RPC like a function.
     const syncedStatePattern = new RegExp(
       `export\\s+const\\s+${escaped}\\s*(?::[^=]+)?=\\s*syncedState\\s*[<(]`
     )
@@ -91,7 +91,7 @@ async function validateServerExports(filePath: string): Promise<string[]> {
     if (!asyncFnPattern.test(source)) {
       throw new Error(
         `"${name}" in ${basename(filePath)} is not an async function. ` +
-          `.server.ts files can only export async functions and syncedState() from 'moi/server'.`
+          `.server.ts files can only export async functions and syncedState() from 'moi/sync'.`
       )
     }
   }
@@ -158,7 +158,7 @@ function appletRuntimePlugin(
         path: COLLAB_MODULE_PATH
       }))
       // Synced state hooks reach the host through the same bridge.
-      build.onResolve({ filter: /^moi\/live$/ }, () => ({ path: LIVE_MODULE_PATH }))
+      build.onResolve({ filter: /^moi\/sync$/ }, () => ({ path: SYNC_MODULE_PATH }))
       // The applet-facing runtime. A bare specifier, so match it exactly.
       build.onResolve({ filter: /^moi$/ }, () => ({ path: MOI_MODULE_PATH }))
 
