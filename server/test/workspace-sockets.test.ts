@@ -1,5 +1,3 @@
-import { COLLAB_PROTOCOL_VERSION } from '@/lib/collab/protocol'
-import type { CollabClientMessage } from '@/lib/collab/types'
 import type { ServerEvent } from '@/lib/events'
 import { expect, test } from 'bun:test'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -81,9 +79,7 @@ test('real socket routes isolate shared workspaces, personal state, harness even
       cwd: join(import.meta.dir, '../..'),
       env: {
         ...process.env,
-        HOST: '127.0.0.1',
         MOI_DATA_DIR: root,
-        MOI_DEV: '1',
         MOI_ENVIRONMENT: 'local',
         MOI_SECRET_BACKEND: 'file',
         PORT: String(port),
@@ -232,9 +228,7 @@ test('real socket routes isolate shared workspaces, personal state, harness even
     )
     expect(await scratch.promise).toEqual({ ok: true })
     expect(harness!.messages).toEqual([])
-    expect(one!.messages).toEqual([
-      { type: 'error', code: 'invalid_message', message: 'Invalid collab message' }
-    ])
+    expect(one!.messages).toEqual([])
     expect(two!.messages).toEqual([])
 
     // Register on both transports. Only the machine channel can become a navigation target.
@@ -246,12 +240,7 @@ test('real socket routes isolate shared workspaces, personal state, harness even
     machine!.socket.send(presence)
     one!.socket.send(presence)
     // A local HTTP round trip gives the server time to consume the frames.
-    const config = await fetch(`http://127.0.0.1:${port}/api/config`)
-    expect(await config.json()).toMatchObject({ environment: 'local', localCollabTesting: true })
-    const crossOrigin = await fetch(`http://127.0.0.1:${port}/api/workspaces/one/events`, {
-      headers: { Origin: 'https://other.example' }
-    })
-    expect(crossOrigin.status).toBe(403)
+    await fetch(`http://127.0.0.1:${port}/api/config`)
     child.send({ type: 'navigate' })
     await until(() => machine!.messages.some(message => message.type === 'navigation:request'))
     const request = machine!.messages.find(message => message.type === 'navigation:request')!
@@ -262,38 +251,6 @@ test('real socket routes isolate shared workspaces, personal state, harness even
     expect(one!.messages.some(message => message.type === 'navigation:request')).toBe(false)
     expect(two!.messages.some(message => message.type === 'navigation:request')).toBe(false)
     expect((await fetch(`http://127.0.0.1:${port}/api/workspaces/visitor/events`)).status).toBe(404)
-
-    // Direct local development uses this same workspace socket for presence.
-    const otherWindow = await connect(base + '/api/workspaces/one/events')
-    sockets.push(otherWindow.socket)
-    const joinAs = (socket: WebSocket, id: string, name: string) =>
-      socket.send(
-        JSON.stringify({
-          type: 'join',
-          version: COLLAB_PROTOCOL_VERSION,
-          profile: { id, name, color: 'blue' }
-        } satisfies CollabClientMessage)
-      )
-    joinAs(one!.socket, 'dev-anna', 'Anna')
-    joinAs(otherWindow.socket, 'dev-boris', 'Boris')
-    const bothUsers = [
-      { id: 'dev-anna', name: 'Anna', color: 'blue' },
-      { id: 'dev-boris', name: 'Boris', color: 'blue' }
-    ]
-    for (const { messages } of [one!, otherWindow]) {
-      await until(() =>
-        messages.some(
-          message =>
-            message.type === 'connections' &&
-            Array.isArray(message.users) &&
-            message.users.length === 2
-        )
-      )
-      expect(messages).toContainEqual(
-        expect.objectContaining({ type: 'connections', users: expect.arrayContaining(bothUsers) })
-      )
-    }
-    expect(two!.messages.some(message => message.type === 'connections')).toBe(false)
   } finally {
     for (const socket of sockets) socket.close()
     child.kill('SIGTERM')

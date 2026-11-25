@@ -9,43 +9,6 @@ import { API, HARNESSES, suite, WORKSPACE } from './fixtures'
 const { describe, test } = suite(import.meta.path)
 const WORKSPACE_PAGE = `/#/workspace/${WORKSPACE}`
 
-test(
-  'dev collab saves a custom name and color for this tab',
-  async page => {
-    await page.addInitScript(() => {
-      let nextId = 0
-      Object.defineProperty(crypto, 'randomUUID', {
-        value: () => `00000000-0000-4000-8000-${String(++nextId).padStart(12, '0')}`
-      })
-    })
-    await page.goto('/#/dev/collab')
-    const name = page.getByRole('textbox', { name: 'Name', exact: true })
-    await expect(name).toHaveValue('Mole')
-    await name.fill('Boris')
-    await page.locator('label[data-collab-color="emerald"]').click()
-    await page.getByRole('button', { name: 'Save for this tab' }).click()
-
-    await page.goto('/?reload=1#/dev/collab')
-    await expect(name).toHaveValue('Boris')
-    await expect(page.getByRole('radio', { name: 'Emerald', checked: true })).toBeVisible()
-    await takeSnapshot('saved tab profile')
-    await page.getByRole('button', { name: 'Reset to default' }).click()
-    await page.goto('/?reload=2#/dev/collab')
-    await expect(name).toHaveValue('Mole')
-    await expect(page.getByRole('radio', { name: 'Blue', checked: true })).toBeVisible()
-  },
-  {
-    api: {
-      '/api/config': {
-        environment: 'local',
-        demo: false,
-        demoInstallUrl: '/',
-        localCollabTesting: true
-      } satisfies ClientAppConfig
-    }
-  }
-)
-
 test('floating chat keeps its open and closed state after reload', async page => {
   await page.addInitScript(() => {
     localStorage.setItem(
@@ -212,28 +175,6 @@ const sharingUser: Identity = {
   email: 'alex@example.com',
   isAnonymous: false
 }
-
-test(
-  'dev collab shows the host profile when signed in through a host',
-  async page => {
-    await page.goto('/#/dev/collab')
-    await expect(page.getByText(sharingUser.name, { exact: true })).toBeVisible()
-    await expect(page.getByRole('textbox', { name: 'Name', exact: true })).toHaveCount(0)
-  },
-  {
-    api: {
-      '/api/config': {
-        environment: 'cloud',
-        demo: false,
-        demoInstallUrl: '/',
-        localCollabTesting: true
-      } satisfies ClientAppConfig,
-      '/cloud/api/me': sharingUser
-    },
-    members: [{ id: WORKSPACE, members: [sharingUser], invitations: [] }]
-  }
-)
-
 test(
   'sharing duplicate invitation toast',
   async page => {

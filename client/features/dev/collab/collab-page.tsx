@@ -13,7 +13,7 @@ export function CollabPage() {
         <header className="mt-5">
           <h1 className="text-xl font-medium">Collab</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Test collaboration in a workspace or try the presence playground.
+            Try collaboration components and hooks, and edit your local user for workspace testing.
           </p>
         </header>
       </div>

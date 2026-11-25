@@ -4,7 +4,6 @@ import { useRouter } from 'wouter'
 import { usePathname } from 'wouter/use-browser-location'
 
 import type { ReconnectingSocket } from '@/client/runtime/reconnecting-socket'
-import type { UserProfile } from '@/lib/collab/types'
 import { tabFromPath } from '@/lib/workspace-tabs'
 
 import { CollabClient, NO_ENGINE } from './client'
@@ -23,21 +22,14 @@ export function pageFromPath(path: string, workspaceId: string, base = ''): stri
 export type CollabProviderProps = {
   workspaceId: string
   enabled: boolean
-  localTestProfile?: UserProfile
   // The workspace's live connection; presence opens its own when none is shared.
   socket?: ReconnectingSocket
   children: ReactNode
 }
-export function CollabProvider({
-  workspaceId,
-  enabled,
-  socket,
-  localTestProfile,
-  children
-}: CollabProviderProps) {
+export function CollabProvider({ workspaceId, enabled, socket, children }: CollabProviderProps) {
   const engine = useMemo(
-    () => new CollabClient(workspaceId, enabled, socket, localTestProfile),
-    [workspaceId, enabled, socket, localTestProfile]
+    () => new CollabClient(workspaceId, enabled, socket),
+    [workspaceId, enabled, socket]
   )
   const router = useRouter()
   const path = usePathname(router)
