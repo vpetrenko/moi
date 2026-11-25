@@ -436,7 +436,7 @@ Inspect source only for local customizations, doc conflicts, or concrete build i
 ### Server functions
 
 In `<name>.server.ts`, export named `async function`s (only — no `const`, sync, or class; the one
-exception is a [synced state](references/SYNC.md) for data several users change together) and call
+exception is a synced state, see below) and call
 them from the component like ordinary async functions; arguments and return values are auto-serialized (`Date`, `Map`,
 `Set`, … work). They run on the Bun server with `process.env` and full filesystem access, at
 `cwd = <workspace root>` (the parent of `.moi/`, where you operate) — so workspace files are plain
@@ -454,6 +454,13 @@ The component fetches on mount; after you change underlying data a server fn rea
 
 It's plain Bun — every Bun API is available with no setup: `bun:sqlite`, `Bun.redis`, `Bun.s3`,
 `Bun.file`, `fetch`, …
+
+### Synced state
+
+When several users must see and change the same data together (a shared list, a board, votes),
+do not poll or refetch with server functions. Use `moi/sync`: you write the state and its actions
+once, and Moi keeps every open window in step. Read [Synced state](references/SYNC.md) before
+building or changing one.
 
 ### Files and assets
 
